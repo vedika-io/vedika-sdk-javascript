@@ -1,0 +1,50 @@
+{
+  "name": "vedika-sdk",
+  "version": "1.0.0",
+  "description": "The only B2B astrology API with AI-powered chatbot queries - JavaScript/Node.js SDK",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.ts",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "astrology",
+    "vedic",
+    "api",
+    "AI",
+    "chatbot",
+    "horoscope",
+    "birth-chart",
+    "compatibility",
+    "numerology",
+    "multilingual"
+  ],
+  "author": "Vedika Intelligence <support@vedika.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vedika-intelligence/vedika-sdk-javascript.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vedika-intelligence/vedika-sdk-javascript/issues"
+  },
+  "homepage": "https://vedika.io",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  }
+}
