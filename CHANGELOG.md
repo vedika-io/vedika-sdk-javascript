@@ -188,9 +188,9 @@ We follow [Semantic Versioning](https://semver.org/):
 
 ---
 
-For the complete version history, see: https://github.com/Zayn111666/vedika-sdk-javascript/releases
+For the complete version history, see: https://github.com/vedika-io/vedika-sdk-javascript/releases
 
-[1.3.0]: https://github.com/Zayn111666/vedika-sdk-javascript/releases/tag/v1.3.0
-[1.2.0]: https://github.com/Zayn111666/vedika-sdk-javascript/releases/tag/v1.2.0
-[1.1.0]: https://github.com/Zayn111666/vedika-sdk-javascript/releases/tag/v1.1.0
-[1.0.0]: https://github.com/Zayn111666/vedika-sdk-javascript/releases/tag/v1.0.0
+[1.3.0]: https://github.com/vedika-io/vedika-sdk-javascript/releases/tag/v1.3.0
+[1.2.0]: https://github.com/vedika-io/vedika-sdk-javascript/releases/tag/v1.2.0
+[1.1.0]: https://github.com/vedika-io/vedika-sdk-javascript/releases/tag/v1.1.0
+[1.0.0]: https://github.com/vedika-io/vedika-sdk-javascript/releases/tag/v1.0.0
