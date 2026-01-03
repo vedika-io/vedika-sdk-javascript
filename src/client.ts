@@ -40,9 +40,9 @@ import {
  *
  * @example
  * ```typescript
- * import { VedikaClient } from 'vedika-sdk';
+ * import { VedikaClient } from '@vedika-io/sdk';
  *
- * const client = new VedikaClient({ apiKey: 'vk_test_...' });
+ * const client = new VedikaClient({ apiKey: 'vk_live_...' });
  *
  * const response = await client.askQuestion({
  *   question: 'What are my career prospects?',
@@ -58,7 +58,6 @@ import {
 export class VedikaClient {
   private client: AxiosInstance;
   private apiKey: string;
-  private cacheEnabled: boolean;
   private defaultLanguage: string;
 
   /**
@@ -75,25 +74,21 @@ export class VedikaClient {
     }
 
     this.apiKey = options.apiKey;
-    this.cacheEnabled = options.cacheEnabled !== false;
     this.defaultLanguage = options.language || 'en';
 
-    const baseURL = options.baseUrl || 'https://vedika-api-854222120654.us-central1.run.app';
+    const baseURL = options.baseUrl || 'https://api.vedika.io';
     const timeout = options.timeout || 60000;
-    const maxRetries = options.maxRetries || 3;
 
-    // Create axios instance with retry logic
     this.client = axios.create({
       baseURL,
       timeout,
       headers: {
         'Content-Type': 'application/json',
         'X-API-Key': this.apiKey,
-        'User-Agent': 'vedika-javascript-sdk/1.0.0',
+        'User-Agent': '@vedika-io/sdk/1.0.0',
       },
     });
 
-    // Add response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
@@ -108,7 +103,7 @@ export class VedikaClient {
   private handleError(error: AxiosError): never {
     if (error.response) {
       const status = error.response.status;
-      const data: any = error.response.data;
+      const data = error.response.data as { message?: string };
       const message = data?.message || error.message;
 
       switch (status) {
@@ -146,23 +141,6 @@ export class VedikaClient {
    *
    * @param query - Question query parameters
    * @returns Promise resolving to the answer
-   *
-   * @example
-   * ```typescript
-   * const response = await client.askQuestion({
-   *   question: 'What are my career prospects this year?',
-   *   birthDetails: {
-   *     datetime: '1990-06-15T14:30:00+05:30',
-   *     latitude: 28.6139,
-   *     longitude: 77.2090,
-   *     timezone: 'Asia/Kolkata'
-   *   },
-   *   language: 'en'
-   * });
-   *
-   * console.log(response.answer);
-   * console.log(`Confidence: ${response.confidence}`);
-   * ```
    */
   async askQuestion(query: QuestionQuery): Promise<QuestionResponse> {
     const response = await this.client.post<QuestionResponse>('/api/v1/astrology/query', {
@@ -176,19 +154,6 @@ export class VedikaClient {
 
   /**
    * Stream conversational astrology question response in real-time
-   *
-   * @param query - Question query parameters
-   * @returns Async generator yielding response chunks
-   *
-   * @example
-   * ```typescript
-   * for await (const chunk of client.askQuestionStream({
-   *   question: 'What are my career prospects?',
-   *   birthDetails: birthInfo
-   * })) {
-   *   process.stdout.write(chunk);
-   * }
-   * ```
    */
   async *askQuestionStream(query: QuestionQuery): AsyncGenerator<string> {
     const response = await this.client.post(
@@ -217,23 +182,6 @@ export class VedikaClient {
 
   /**
    * Generate a complete birth chart
-   *
-   * @param query - Birth chart query parameters
-   * @returns Promise resolving to the birth chart
-   *
-   * @example
-   * ```typescript
-   * const chart = await client.getBirthChart({
-   *   datetime: '1990-06-15T14:30:00+05:30',
-   *   latitude: 28.6139,
-   *   longitude: 77.2090,
-   *   timezone: 'Asia/Kolkata',
-   *   ayanamsa: 'lahiri'
-   * });
-   *
-   * console.log(chart.ascendant);
-   * console.log(chart.planets);
-   * ```
    */
   async getBirthChart(query: BirthChartQuery): Promise<BirthChart> {
     const response = await this.client.post<BirthChart>('/api/v1/charts/birth', {
@@ -251,18 +199,6 @@ export class VedikaClient {
 
   /**
    * Get Vimshottari Dasha periods
-   *
-   * @param birthDetails - Birth information
-   * @returns Promise resolving to dasha periods
-   *
-   * @example
-   * ```typescript
-   * const dashas = await client.getDashas(birthDetails);
-   *
-   * dashas.mahadashas.forEach(dasha => {
-   *   console.log(`${dasha.planet}: ${dasha.startDate} to ${dasha.endDate}`);
-   * });
-   * ```
    */
   async getDashas(birthDetails: BirthDetails): Promise<DashaResponse> {
     const response = await this.client.post<DashaResponse>('/api/vedika/dasha-periods', {
@@ -274,20 +210,6 @@ export class VedikaClient {
 
   /**
    * Check marriage compatibility using Ashtakoota matching
-   *
-   * @param query - Compatibility query parameters
-   * @returns Promise resolving to compatibility analysis
-   *
-   * @example
-   * ```typescript
-   * const compatibility = await client.checkCompatibility({
-   *   person1: birthDetails1,
-   *   person2: birthDetails2
-   * });
-   *
-   * console.log(`Total score: ${compatibility.totalScore}/36`);
-   * console.log(`Compatibility: ${compatibility.compatibilityLevel}`);
-   * ```
    */
   async checkCompatibility(query: CompatibilityQuery): Promise<CompatibilityResponse> {
     const response = await this.client.post<CompatibilityResponse>('/api/v1/compatibility/match', {
@@ -300,19 +222,6 @@ export class VedikaClient {
 
   /**
    * Detect 300+ astrological yogas
-   *
-   * @param birthDetails - Birth information
-   * @returns Promise resolving to detected yogas
-   *
-   * @example
-   * ```typescript
-   * const yogas = await client.detectYogas(birthDetails);
-   *
-   * console.log(`Found ${yogas.yogas.length} yogas:`);
-   * yogas.yogas.forEach(yoga => {
-   *   console.log(`- ${yoga.name}: ${yoga.description}`);
-   * });
-   * ```
    */
   async detectYogas(birthDetails: BirthDetails): Promise<YogaResponse> {
     const response = await this.client.post<YogaResponse>('/api/vedika/yoga-detection', {
@@ -324,19 +233,6 @@ export class VedikaClient {
 
   /**
    * Analyze doshas (Kaal Sarp, Mangal, Sade Sati, etc.)
-   *
-   * @param birthDetails - Birth information
-   * @returns Promise resolving to dosha analysis
-   *
-   * @example
-   * ```typescript
-   * const doshas = await client.analyzeDoshas(birthDetails);
-   *
-   * if (doshas.kaalSarpDosha.present) {
-   *   console.log('Kaal Sarp Dosha detected');
-   *   console.log(`Type: ${doshas.kaalSarpDosha.type}`);
-   * }
-   * ```
    */
   async analyzeDoshas(birthDetails: BirthDetails): Promise<DoshaResponse> {
     const response = await this.client.post<DoshaResponse>('/api/vedika/dosha-analysis', {
@@ -348,20 +244,6 @@ export class VedikaClient {
 
   /**
    * Find auspicious times (Muhurtha) for important events
-   *
-   * @param query - Muhurtha query parameters
-   * @returns Promise resolving to auspicious timing analysis
-   *
-   * @example
-   * ```typescript
-   * const muhurtha = await client.getMuhurtha({
-   *   date: '2025-11-01',
-   *   location: { latitude: 28.6139, longitude: 77.2090 },
-   *   eventType: 'wedding'
-   * });
-   *
-   * console.log(`Best time: ${muhurtha.bestTime}`);
-   * ```
    */
   async getMuhurtha(query: MuhurthaQuery): Promise<MuhurthaResponse> {
     const response = await this.client.post<MuhurthaResponse>('/api/vedika/muhurtha', {
@@ -375,19 +257,6 @@ export class VedikaClient {
 
   /**
    * Get numerology analysis (37 calculations)
-   *
-   * @param query - Numerology query parameters
-   * @returns Promise resolving to numerology analysis
-   *
-   * @example
-   * ```typescript
-   * const numerology = await client.getNumerology({
-   *   name: 'John Doe',
-   *   birthDate: '1990-06-15'
-   * });
-   *
-   * console.log(`Life Path Number: ${numerology.lifePath}`);
-   * ```
    */
   async getNumerology(query: NumerologyQuery): Promise<NumerologyResponse> {
     const response = await this.client.post<NumerologyResponse>('/api/vedika/numerology', {
@@ -400,19 +269,6 @@ export class VedikaClient {
 
   /**
    * Process multiple queries in batch for efficiency
-   *
-   * @param queries - Array of query items
-   * @returns Promise resolving to array of responses
-   *
-   * @example
-   * ```typescript
-   * const queries = [
-   *   { question: 'Career prospects?', birthDetails: birth1 },
-   *   { question: 'Marriage timing?', birthDetails: birth2 }
-   * ];
-   *
-   * const results = await client.batchProcess(queries);
-   * ```
    */
   async batchProcess(queries: BatchQueryItem[]): Promise<QuestionResponse[]> {
     const promises = queries.map((query) =>
