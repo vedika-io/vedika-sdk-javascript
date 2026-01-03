@@ -1,5 +1,5 @@
 {
-  "name": "vedika-sdk",
+  "name": "@vedika-io/sdk",
   "version": "1.0.0",
   "description": "The only B2B astrology API with AI-powered chatbot queries - JavaScript/Node.js SDK",
   "main": "dist/index.js",
@@ -28,10 +28,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vedika-intelligence/vedika-sdk-javascript.git"
+    "url": "https://github.com/vedika-io/vedika-sdk-javascript.git"
   },
   "bugs": {
-    "url": "https://github.com/vedika-intelligence/vedika-sdk-javascript/issues"
+    "url": "https://github.com/vedika-io/vedika-sdk-javascript/issues"
   },
   "homepage": "https://vedika.io",
   "engines": {
