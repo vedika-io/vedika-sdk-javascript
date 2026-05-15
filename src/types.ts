@@ -41,9 +41,9 @@ export interface Citation {
  * Response from AI chatbot query (UNIQUE to Vedika!)
  */
 export interface QuestionResponse {
-  /** Detailed astrological answer from 6 AI agents */
+  /** Detailed astrological answer */
   answer: string;
-  /** Prediction confidence score (0.0 to 1.0) */
+  /** Response metadata score */
   confidence: number;
   /** Credits consumed for this query */
   creditsUsed: number;

@@ -10,13 +10,13 @@ Official JavaScript/Node.js SDK for the Vedika Astrology API - The **only B2B as
 
 Vedika is the **ONLY B2B astrology API** that offers:
 - ✅ **AI-Powered Chatbot Queries** (conversational astrology questions)
-- ✅ **Advanced Multi-Model AI** (intelligent query routing)
-- ✅ **Voice AI** (v33: 3-tier voice interface with 22-language multilingual support)
+- ✅ **Advanced AI Intelligence Engine
+- ✅ **Voice AI (multilingual support across 14 Indian languages plus English)
 - ✅ **Fast & Standard Speed Modes** (1.5-3s fast queries vs 12-18s comprehensive)
 - ✅ **Multi-Turn Conversations** (maintain context via conversationId)
-- ✅ **108+ Traditional Features** (birth charts, dashas, yogas, doshas, compatibility)
-- ✅ **97.2% Prediction Accuracy** (vs 51% industry average)
-- ✅ **99.9% Uptime** (3-tier ephemeris fallback)
+- ✅ **130+ Traditional Features** (birth charts, dashas, yogas, doshas, compatibility)
+- ✅ **Citation-Verified Accuracy (grounded in classical texts)
+- ✅ **99.9% Uptime SLA
 - ✅ **22 Language Support** (including 11 Indian languages)
 
 **In summary:** All the features of traditional astrology APIs, **PLUS** conversational AI capabilities no other provider has.
@@ -380,7 +380,7 @@ const response = await client.askQuestion({
 
 ## 🎨 Advanced Features
 
-### Voice AI (New in v33)
+### Voice AI
 
 ```javascript
 // Stream voice response (Business/Enterprise plans only)
@@ -388,7 +388,7 @@ const audioStream = await client.askVoice({
   question: 'What are my career prospects?',
   birthDetails: birthInfo,
   tier: 'vedika-standard',  // $0.072/query: balanced quality + latency (~1s)
-  // or 'vedika-native' ($0.040): audio-native pipeline, 600+ languages (~800ms)
+  // or 'vedika-native' ($0.040): audio-native engine, 14+ languages (~800ms)
   // or 'vedika-jarvis' ($0.080): ultra-low-latency streaming (<500ms voice-to-voice)
   language: 'hi'  // 22 languages supported
 });
@@ -429,7 +429,7 @@ for await (const chunk of client.askQuestionStream({
   process.stdout.write(chunk);
 }
 
-// Events: 'started', 'progress', 'synthesis', 'data_sources', 'billing_completed', 'completed', 'error'
+// Events: 'started', 'progress', 'data_sources', 'billing_completed', 'completed', 'error'
 ```
 
 ### Batch Processing
@@ -598,7 +598,7 @@ You're sending too many requests. Wait a moment or upgrade your plan.
 - **Average response time:** 2.14 seconds (simple queries)
 - **Complex queries:** 28-36 seconds (deep analysis path)
 - **Uptime:** 99.9% (multi-region failover)
-- **Accuracy:** 97.2% prediction accuracy
+- **Accuracy: Citation-verified from classical texts
 
 ## 🔒 Security
 
@@ -618,7 +618,7 @@ MIT License - see [LICENSE](LICENSE) file
 - **API Reference:** https://vedika.io/api-reference.html
 - **Dashboard:** https://vedika.io/dashboard.html
 - **Support:** support@vedika.io
-- **GitHub:** https://github.com/vedika-intelligence
+- **GitHub:** https://github.com/vedika-io
 
 ## ⭐ Support
 
