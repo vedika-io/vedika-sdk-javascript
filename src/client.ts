@@ -388,7 +388,7 @@ export class VedikaClient {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
         'X-API-Key': this.apiKey,  // DEPRECATED — remove after 2026-10-20
-        'User-Agent': 'vedika-javascript-sdk/3.0.9',
+        'User-Agent': 'vedika-javascript-sdk/3.0.10',
       },
       // Credential-routing hardening, NODE TRANSPORT ONLY. axios strips
       // its default sensitive headers (incl. Authorization) on a cross-origin

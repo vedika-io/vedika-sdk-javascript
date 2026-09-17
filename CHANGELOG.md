@@ -5,6 +5,22 @@ All notable changes to the Vedika JavaScript SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.10] - 2026-09-17
+
+### Fixed
+- The README no longer describes how the platform is built. Removed an
+  internal routing description, an internal build number, an agent count
+  (also from the `QuestionResponse.answer` doc comment) and a pipeline stage
+  name from the documented streaming events.
+- The documented streaming event list now matches what the API emits:
+  `started`, `progress`, `stage_completed`, `data_sources`,
+  `billing_completed`, `billing_error`, `completed`, `error`. The previously
+  listed `synthesis` event is not emitted.
+- The language section listed 22 languages and omitted six the API serves. It
+  now lists all 29 with their codes. An unrecognised code is not rejected, so
+  the README says to validate it client-side.
+- Replaced a stale feature count in the feature list.
+
 ## [3.0.9] - 2026-09-17
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "@vedika-io/sdk",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "description": "The only B2B astrology API with AI-powered chatbot queries - JavaScript/Node.js SDK",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

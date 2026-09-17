@@ -108,6 +108,6 @@ export {
 } from './exceptions';
 
 // Package metadata
-export const VERSION = '3.0.9';
+export const VERSION = '3.0.10';
 export const AUTHOR = 'Vedika Intelligence';
 export const HOMEPAGE = 'https://vedika.io';
