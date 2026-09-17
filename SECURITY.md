@@ -77,7 +77,7 @@ If you accidentally expose your API key:
 
 ```bash
 # .env file
-VEDIKA_API_KEY=vk_test_your_api_key_here
+VEDIKA_API_KEY=vk_live_your_api_key_here
 ```
 
 ```typescript
@@ -93,7 +93,7 @@ const client = new VedikaClient({
 
 ```bash
 # .env.local
-REACT_APP_VEDIKA_API_KEY=vk_test_your_api_key_here
+REACT_APP_VEDIKA_API_KEY=vk_live_your_api_key_here
 ```
 
 ```typescript
@@ -110,7 +110,7 @@ const client = new VedikaClient({
 
 ```typescript
 // ✅ Safe: API key stays on server
-import { VedikaClient } from 'vedika-sdk';
+import { VedikaClient } from '@vedika-io/sdk';
 
 const client = new VedikaClient({
   apiKey: process.env.VEDIKA_API_KEY
@@ -198,7 +198,7 @@ const client = new VedikaClient({
 Respect rate limits to prevent account suspension:
 
 ```typescript
-import { RateLimitError } from 'vedika-sdk';
+import { RateLimitError } from '@vedika-io/sdk';
 
 async function safeApiCall(
   client: VedikaClient,
@@ -258,7 +258,7 @@ npm audit
 npm audit fix
 
 # Update dependencies
-npm update vedika-sdk axios
+npm update @vedika-io/sdk axios
 ```
 
 ## Known Security Considerations
@@ -271,8 +271,10 @@ npm update vedika-sdk axios
 
 ### API Key Scopes
 
-- **Test keys** (`vk_test_`): Limited functionality, safe for development
-- **Live keys** (`vk_live_`): Full access, use only in production
+- **Live keys** (`vk_live_`): Issued on paid plans. Calls are billed to your wallet.
+- **Enterprise keys** (`vk_ent_`): Issued on the Enterprise plan instead of `vk_live_`. Calls are billed to your wallet.
+- **Sandbox keys** (`vk_sandbox_`): Work only on `/sandbox/*`, which returns sample data at no charge. A sandbox key is optional; it attributes sandbox calls to your account.
+- Keys that start with `vk_test_` are not issued, and the API rejects them. To test without spending credits, use the sandbox.
 - **Never commit keys**: Use environment variables or secret managers
 
 ### Network Security

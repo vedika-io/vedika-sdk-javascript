@@ -8,7 +8,7 @@
  * UNIQUE FEATURE: Only Vedika offers AI chatbot queries for astrology!
  */
 
-const { VedikaClient } = require('vedika-sdk');
+const { VedikaClient } = require('@vedika-io/sdk');
 const readline = require('readline');
 
 const rl = readline.createInterface({

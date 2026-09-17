@@ -10,14 +10,11 @@ Official JavaScript/Node.js SDK for the Vedika Astrology API - The **only B2B as
 
 Vedika is the **ONLY B2B astrology API** that offers:
 - ✅ **AI-Powered Chatbot Queries** (conversational astrology questions)
-- ✅ **Advanced AI Intelligence Engine
-- ✅ **Voice AI (multilingual support across 14 Indian languages plus English)
-- ✅ **Fast & Standard Speed Modes** (1.5-3s fast queries vs 12-18s comprehensive)
+- ✅ **Voice AI** (spoken answers in Indian languages and English; see `/api/v1/voice/pricing` for the current tiers and their languages)
+- ✅ **Fast, Standard & Eco Delivery Tiers** (1.5-3s fast vs 12-18s comprehensive; eco is the lower-cost engine)
 - ✅ **Multi-Turn Conversations** (maintain context via conversationId)
-- ✅ **130+ Traditional Features** (birth charts, dashas, yogas, doshas, compatibility)
-- ✅ **Citation-Verified Accuracy (grounded in classical texts)
-- ✅ **99.9% Uptime SLA
-- ✅ **22 Language Support** (including 11 Indian languages)
+- ✅ **Traditional Vedic Coverage** (birth charts, dashas, yogas, doshas, compatibility)
+- ✅ **Multi-Language Answers** (14 Indian languages plus English, and major world languages)
 
 **In summary:** All the features of traditional astrology APIs, **PLUS** conversational AI capabilities no other provider has.
 
@@ -38,7 +35,7 @@ const { VedikaClient } = require('@vedika-io/sdk');
 
 // Initialize client
 const client = new VedikaClient({
-  apiKey: 'vk_test_your_api_key_here'
+  apiKey: 'vk_live_...'
 });
 
 // Ask a conversational astrology question (UNIQUE to Vedika!)
@@ -50,8 +47,8 @@ const response = await client.askQuestion({
     longitude: 77.2090,
     timezone: '+05:30'
   },
-  language: 'en',  // Supports 22 languages!
-  speed: 'standard'  // 'fast' (1.5-3s) or 'standard' (12-18s, default)
+  language: 'en',  // 29 languages; see the language list below
+  speed: 'standard'  // 'fast' (1.5-3s), 'standard' (12-18s, default), or 'eco' (lower cost)
 });
 
 console.log(response.answer);
@@ -72,7 +69,7 @@ const followUp = await client.askQuestion({
 ```javascript
 import { VedikaClient } from '@vedika-io/sdk';
 
-const client = new VedikaClient({ apiKey: 'vk_test_...' });
+const client = new VedikaClient({ apiKey: 'vk_live_...' });
 
 // Use async/await
 const response = await client.askQuestion({
@@ -83,24 +80,38 @@ const response = await client.askQuestion({
 
 ### React Example
 
+⚠️ **Never construct a `VedikaClient` with a live API key inside browser code.**
+A `REACT_APP_*` / `NEXT_PUBLIC_*` / `VITE_*` env var is inlined into the JS
+bundle at build time and shipped to every visitor — anyone can read it from
+the network tab and spend your wallet. Call your own backend from the
+component, and let the backend hold the real `VedikaClient` (see "Basic Usage
+(Node.js)" above). If you only have a static/serverless frontend, put a thin
+proxy endpoint in front of Vedika instead of embedding the key.
+
 ```jsx
-import { VedikaClient } from '@vedika-io/sdk';
+// Client component — calls YOUR backend, never Vedika directly.
 import { useState } from 'react';
 
 function AstrologyChat() {
   const [answer, setAnswer] = useState('');
-  const client = new VedikaClient({ apiKey: process.env.REACT_APP_VEDIKA_API_KEY });
 
   const askQuestion = async (question) => {
-    const response = await client.askQuestion({
-      question,
-      birthDetails: {
-        datetime: '1990-06-15T14:30:00+05:30',
-        latitude: 28.6139,
-        longitude: 77.2090,
-        timezone: '+05:30'
-      }
+    // /api/ask is a route on your own server that holds the real API key
+    // and calls VedikaClient server-side (see the Node.js example above).
+    const res = await fetch('/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        birthDetails: {
+          datetime: '1990-06-15T14:30:00+05:30',
+          latitude: 28.6139,
+          longitude: 77.2090,
+          timezone: '+05:30'
+        }
+      })
     });
+    const response = await res.json();
     setAnswer(response.answer);
   };
 
@@ -354,9 +365,59 @@ const career = await client.career.analysis(birthInfo);
 console.log(`Best fields: ${career.suitableFields.join(', ')}`);
 ```
 
+### 🏠 Vastu Shastra (93 operation paths)
+
+Vastu takes a building: a plot polygon, room list, and compass zone. All 93 operation paths use `/v2/astrology/vastu/`. `vastuOperation()` and the typed named helpers return the full `{success, data, billing?, meta?}` response. Generic helpers such as `vastu()` and `vastuScore()` return the data payload.
+
+```typescript
+const rooms = [
+  { name: 'Kitchen', roomType: 'kitchen', zone: 'SE' },
+  { name: 'Pooja', roomType: 'pooja', zone: 'NE' },
+];
+const score = await client.vastuOperation('score/overall', { rooms });
+console.log(score.data.score, score.data.scoring.version);
+
+// A batch has 1–20 properties. Retain this key with this exact batch before
+// sending; reuse it after a lost response or client restart. Use a new key
+// for a different logical batch. Missing or blank keys fail before network.
+const batchKey = 'property-import-001';
+const batch = await client.vastuOperation('assessments/batch', {
+  items: [{
+    id: 'property-1',
+    assessment: { inputSource: 'plan-derived', rooms: [{ roomType: 'kitchen', zone: 'SE' }] },
+  }],
+}, { idempotencyKey: batchKey });
+for (const item of batch.data.results) {
+  console.log(item.id, item.status, item.response);
+}
+
+// Keep geometry and scores while omitting SVG drawings.
+const plan = await client.vastuOperation('plan/from-requirements', {
+  plot: { width: 40, length: 60, facing: 'east' },
+  requirements: {
+    bedrooms: 2, toilets: 2, floors: 1,
+    hasKitchen: true, hasLiving: true, hasDining: true, hasPooja: true,
+    hasStudy: true, hasGuest: false, hasStore: false, hasStaircase: false,
+  },
+  includeSvg: false,
+});
+console.log(plan.data.rooms);
+
+// HTML is a standalone artifact. Save its content using its filename,
+// open it offline, or use the browser's Print to PDF.
+const report = await client.vastuOperation('plan/report', {
+  rooms: [{ name: 'Kitchen', zone: 'SE' }, { name: 'Pooja', zone: 'NE' }],
+  format: 'html',
+  brand: { reportTitle: 'Property Vastu Report', generatedFor: 'Buyer' },
+});
+console.log(report.data.artifact?.filename, report.data.artifact?.content);
+```
+
+Each batch item uses the existing assessment price; there is no batch fee. Inspect every item status even when the batch succeeds. Scores are versioned conventions. Compare the same scoring version and equivalent room coverage. Detailed audits report missing input and do not certify physical survey completeness.
+
 ## 🌍 Multi-Language Support
 
-Vedika supports 22 languages:
+Vedika answers in 29 languages:
 
 ```javascript
 // Ask in Hindi
@@ -375,28 +436,39 @@ const response = await client.askQuestion({
 ```
 
 **Supported languages:**
-- 🇮🇳 Indian: Hindi, Bengali, Telugu, Tamil, Gujarati, Kannada, Malayalam, Marathi, Punjabi, Odia, Assamese
-- 🌍 International: English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, Chinese, Arabic
+- 🇮🇳 South Asian: Hindi (`hi`), Bengali (`bn`), Tamil (`ta`), Telugu (`te`), Marathi (`mr`),
+  Gujarati (`gu`), Kannada (`kn`), Malayalam (`ml`), Punjabi (`pa`), Odia (`od`), Assamese (`as`),
+  Urdu (`ur`), Nepali (`ne`), Sinhala (`si`)
+- 🌍 Other: English (`en`), Spanish (`es`), French (`fr`), German (`de`), Italian (`it`),
+  Portuguese (`pt`), Russian (`ru`), Arabic (`ar`), Persian (`fa`), Chinese (`zh`),
+  Japanese (`ja`), Korean (`ko`), Vietnamese (`vi`), Indonesian (`id`), Malay (`ms`)
+
+Pass one of the codes above. An unrecognised code is not rejected, and the language of the
+answer is then not guaranteed, so validate the code on your side.
+Voice answers cover a smaller set than text; read `/api/v1/voice/pricing` for the current
+per-tier voice languages.
 
 ## 🎨 Advanced Features
 
 ### Voice AI
 
+`askVoice()` uploads recorded audio and returns audio or a text fallback. Check
+the current API catalog for voice tier availability, languages, access and pricing.
+
 ```javascript
-// Stream voice response (Business/Enterprise plans only)
-const audioStream = await client.askVoice({
-  question: 'What are my career prospects?',
+// audioBlob is a recorded audio Blob, Buffer or ArrayBuffer.
+const voice = await client.askVoice({
+  audio: audioBlob,
   birthDetails: birthInfo,
-  tier: 'vedika-standard',  // $0.072/query: balanced quality + latency (~1s)
-  // or 'vedika-native' ($0.040): audio-native engine, 14+ languages (~800ms)
-  // or 'vedika-jarvis' ($0.080): ultra-low-latency streaming (<500ms voice-to-voice)
-  language: 'hi'  // 22 languages supported
+  tier: 'vedika-voice-standard',
+  language: 'hi'
 });
 
-// Rates per tier:
-// vedika-standard: 30/min (Business), 100/min (Enterprise)
-// vedika-native: 30/min (Business), 100/min (Enterprise)
-// vedika-jarvis: 30/min (Business), 100/min (Enterprise)
+if (voice.isAudio) {
+  // voice.audio contains the audio response bytes.
+} else {
+  console.log(voice.json?.response);
+}
 ```
 
 ### Speed Modes
@@ -429,7 +501,7 @@ for await (const chunk of client.askQuestionStream({
   process.stdout.write(chunk);
 }
 
-// Events: 'started', 'progress', 'data_sources', 'billing_completed', 'completed', 'error'
+// Events: 'started', 'progress', 'stage_completed', 'data_sources', 'billing_completed', 'billing_error', 'completed', 'error'
 ```
 
 ### Batch Processing
@@ -487,7 +559,7 @@ See full pricing: https://vedika.io/pricing.html
 
 ```bash
 # .env file
-VEDIKA_API_KEY=vk_test_your_api_key_here
+VEDIKA_API_KEY=vk_live_...
 VEDIKA_API_URL=https://api.vedika.io  # Optional
 ```
 
@@ -495,14 +567,25 @@ VEDIKA_API_URL=https://api.vedika.io  # Optional
 
 ```javascript
 const client = new VedikaClient({
-  apiKey: 'vk_test_...',
-  baseUrl: 'https://api.vedika.io',  // Optional
+  apiKey: 'vk_live_...',
+  baseUrl: 'https://api.vedika.io',  // Optional -- must be a Vedika origin (see below)
   timeout: 60000,  // Request timeout in milliseconds
   maxRetries: 3,  // Retry failed requests
   cacheEnabled: true,  // Enable prompt caching for cost savings
-  language: 'en'  // Default language for responses
+  language: 'en',  // Default language for responses
+  allowInsecureHttp: false  // Legacy option; cannot enable custom origins or remote HTTP
 });
 ```
+
+`baseUrl` accepts a Vedika origin (`vedika.io` or a `*.vedika.io` subdomain) over
+HTTPS, or loopback (`localhost`, `127.0.0.1`, `::1`) for local development.
+Anything else throws immediately, because the client would otherwise send your
+API key there. There is no opt-in that relaxes this: to route calls through your
+own gateway, proxy them server-side and keep the key on the server.
+
+> Upgrading from 3.0.6? That version was never published to npm. Its
+> `allowInsecureHttp` option is gone — remote cleartext is not a supported way to
+> send a live key.
 
 ### Structured JSON Output
 
@@ -552,17 +635,15 @@ npm test -- test/chatbot.test.js
 
 ## 📝 Examples
 
-Check out the `examples/` directory:
+`examples/` is **not included in the published npm package** (the package
+ships only `dist/`, this README and the license). Clone the repository or
+browse it on GitHub to run these:
+https://github.com/vedika-io/vedika-sdk-javascript/tree/main/examples
 
 - `basic-chatbot.js` - Simple conversational astrology bot
 - `birth-chart.js` - Complete birth chart generation
-- `compatibility.js` - Marriage compatibility analysis
-- `dosha-detector.js` - Comprehensive dosha analysis
-- `muhurtha-finder.js` - Find auspicious times
-- `multi-language.js` - Multi-language support demo
 - `streaming.js` - Real-time streaming responses
-- `express-app.js` - Express server example
-- `react-app.jsx` - React component example
+- `vastu.js` - Vastu mandala projection, room placement, and scoring
 
 ## 🐛 Troubleshooting
 
@@ -571,8 +652,10 @@ Check out the `examples/` directory:
 Make sure you're using a valid API key from https://vedika.io/dashboard.html
 
 Keys start with:
-- `vk_test_` for testing
 - `vk_live_` for production
+- `vk_ent_` for enterprise accounts
+
+Keys that start with `vk_test_` are rejected. To test without a key, use the free sandbox at `https://api.vedika.io/sandbox/...`.
 
 ### "Insufficient Credits"
 
@@ -597,15 +680,12 @@ You're sending too many requests. Wait a moment or upgrade your plan.
 
 - **Average response time:** 2.14 seconds (simple queries)
 - **Complex queries:** 28-36 seconds (deep analysis path)
-- **Uptime:** 99.9% (multi-region failover)
-- **Accuracy: Citation-verified from classical texts
+- **Availability:** single region (AWS `ap-south-1`, Mumbai) with multi-AZ redundancy. There is no cross-region failover; availability commitments are set per contract.
 
 ## 🔒 Security
 
 - ✅ API keys encrypted in transit (HTTPS)
-- ✅ GDPR compliant
-- ✅ No data retention (unless explicitly enabled)
-- ✅ Security score: 95/100 (A grade)
+- ✅ **Credential-routing policy:** credentials may use only `https://api.vedika.io` on its default HTTPS port, or literal loopback HTTP (`localhost`, `127.x.x.x`, `::1`) for local development. Custom HTTPS origins and remote HTTP are rejected, even with the legacy insecure-HTTP flag. Redirect protection keeps keys off a different origin. Browser applications must keep the real key on their server and use their own app-session transport.
 
 ## 📜 License
 
@@ -645,8 +725,6 @@ If you find this SDK helpful, please:
 | Conversational AI | ✅ Yes | ❌ No |
 | 30 Languages | ✅ Yes | ❌ English only |
 | Streaming | ✅ Yes | ❌ No |
-| Uptime | 99.9% | ~99% |
-| Security Score | 95/100 (A) | Unknown |
 | **Unique Value** | **Traditional + AI** | Traditional only |
 
 **Bottom line:** Vedika provides everything other astrology APIs offer, **PLUS** the only conversational AI chatbot capability in the market.

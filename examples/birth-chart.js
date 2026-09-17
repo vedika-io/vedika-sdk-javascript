@@ -6,7 +6,7 @@
  * with planetary positions, houses, and ascendant.
  */
 
-const { VedikaClient } = require('vedika-sdk');
+const { VedikaClient } = require('@vedika-io/sdk');
 
 // Initialize client
 const apiKey = process.env.VEDIKA_API_KEY;

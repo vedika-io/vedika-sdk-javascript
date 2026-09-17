@@ -41,7 +41,7 @@ export class VedikaAPIError extends Error {
  *
  * Solution:
  * - Get a valid API key from https://vedika.io/dashboard.html
- * - Check that your key starts with vk_test_ or vk_live_
+ * - Check that your key starts with vk_live_ (or vk_ent_ for enterprise keys)
  * - Ensure you haven't accidentally exposed your key
  *
  * @example
@@ -76,9 +76,9 @@ export class AuthenticationError extends VedikaAPIError {
  * - Upgrade your plan for higher limits
  *
  * Rate limits:
- * - Free tier: 10 requests/minute
- * - Starter: 60 requests/minute
- * - Professional: 300 requests/minute
+ * - Starter: 30 requests/minute
+ * - Professional: 60 requests/minute
+ * - Business: 120 requests/minute
  * - Enterprise: Custom limits
  *
  * @example
@@ -109,14 +109,14 @@ export class RateLimitError extends VedikaAPIError {
  * - Query would exceed available credits
  *
  * Solution:
- * - Add more credits at https://vedika.io/dashboard.html
- * - Check your credit balance before making requests
- * - Enable auto-recharge to prevent interruptions
+ * - Upgrade your plan at https://vedika.io/pricing
+ * - Check your wallet balance before making requests
  *
- * Credit costs:
- * - Simple queries: ~500 tokens ($0.19)
- * - Standard queries: ~800 tokens ($0.35)
- * - Complex queries: ~1,500 tokens ($0.65)
+ * Plans:
+ * - Starter: $12/month
+ * - Professional: $60/month
+ * - Business: $120/month
+ * - Enterprise: $240/month
  *
  * @example
  * ```typescript
@@ -142,7 +142,7 @@ export class InsufficientCreditsError extends VedikaAPIError {
  * period has ended.
  *
  * Both `SUBSCRIPTION_EXPIRED` and plain `INSUFFICIENT_BALANCE` return HTTP 402
- * on the Vedika API. SDK-2 (v2.3.1, Apr 21, 2026) branches on the server's
+ * on the Vedika API. The SDK branches on the server's
  * `code` field so callers can distinguish:
  *
  *   - `SubscriptionExpiredError` → direct user to renew the subscription
@@ -240,7 +240,7 @@ export class ValidationError extends VedikaAPIError {
  * ```typescript
  * // Increase timeout for complex queries
  * const client = new VedikaClient({
- *   apiKey: 'vk_test_...',
+ *   apiKey: 'vk_live_...',
  *   timeout: 120000 // 2 minutes
  * });
  * ```
@@ -262,12 +262,12 @@ export class TimeoutError extends VedikaAPIError {
  * - Database or ephemeris error
  *
  * Solution:
- * - Retry the request (automatic with SDK)
+ * - Retry only when the operation is safe to repeat
  * - Wait a few moments if service is down
  * - Contact support@vedika.io if issue persists
  *
- * The SDK automatically retries failed requests up to 3 times
- * with exponential backoff.
+ * The SDK does not automatically retry failed requests.
+ * Callers must control retries to avoid repeating a billable operation.
  */
 export class ServerError extends VedikaAPIError {
   constructor(message: string = 'Internal server error', statusCode: number = 500) {

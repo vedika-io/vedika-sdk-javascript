@@ -35,6 +35,8 @@ export type {
   PredictionQuery,
   HoroscopeQuery,
   EnhancedQuestionQuery,
+  VastuReportQuestion,
+  VastuReportContext,
   ChartType,
   DashaSystem,
   DoshaType,
@@ -45,6 +47,9 @@ export type {
   StrengthType,
   NumerologyType,
   WesternRelationshipType,
+  // TS→Rust transition-tolerant surfaces (3.0.6)
+  SynastryAspect,
+  WesternRelationshipResult,
   ResponseFormat,
   StructuredResponse,
   StructuredResponseSection,
@@ -52,7 +57,7 @@ export type {
   VoiceResponse,
   VoiceMetaHeader,
   VoiceResult,
-  // Project Dominion types
+  // Additional calculation types
   TarotCard,
   TarotReading,
   SpreadInfo,
@@ -73,7 +78,22 @@ export type {
   AllDashaResult,
   HealthResult,
   CareerResult,
+  // Vastu (80 operations, 17 families)
+  VastuMandalaScheme,
+  VastuRoomType,
+  VastuPlacementFeature,
+  VastuAuditKind,
+  VastuScoreKind,
+  VastuArScanQualityInput,
+  VastuArTrueNorthInput,
+  VastuAssessmentsRequest,
+  VastuAssessmentData,
+  VastuAssessmentBadgeEligibility,
+  VastuAssessmentsResponse,
 } from './types';
+
+// TS→Rust transition-tolerant value helper (3.0.6).
+export { normalizeWesternRelationship } from './types';
 
 export {
   VedikaAPIError,
@@ -88,6 +108,6 @@ export {
 } from './exceptions';
 
 // Package metadata
-export const VERSION = '3.0.0';
+export const VERSION = '3.0.9';
 export const AUTHOR = 'Vedika Intelligence';
 export const HOMEPAGE = 'https://vedika.io';

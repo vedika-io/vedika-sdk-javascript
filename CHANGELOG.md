@@ -5,6 +5,109 @@ All notable changes to the Vedika JavaScript SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.9] - 2026-09-17
+
+### Changed
+- Vastu mandala responses changed in the API on 2026-09-17: heatmap and
+  64-pada devatas follow the numbered squares of Brihat Samhita 53.43-48,
+  and 81-pada cells carry `verseSquare`, with `null` devata fields on the
+  28 squares the verse leaves unnamed.
+- `VastuEntrancePadaData.pada` types the devata labels the API now returns:
+  `deityRosterName`, `deityNameClassification`,
+  `deityPlacementClassification` and `deityPlacementSource` (all optional).
+
+### Fixed
+- The README lists only example scripts that exist in the repository's
+  `examples/` folder, and every example loads `@vedika-io/sdk`.
+- `SECURITY.md` lists the key types the API issues: `vk_live_`, `vk_ent_`
+  and the sandbox-only `vk_sandbox_`. `vk_test_` keys are not issued and are
+  rejected.
+- Removed internal tracking references from this changelog.
+
+## [3.0.8] - 2026-09-16
+
+### Added
+- `ar/room-capture` Vastu operation with typed `VastuRoomCapture` requests,
+  `pointCloudDensityBasis` on scan-quality requests, and an optional `capture`
+  on saved-scan snapshots.
+- `askVastuReport` and the `VastuReportQuestion` / `VastuReportContext` types:
+  ask questions about a Vastu report without sending birth details. A
+  `conversationId` alone reuses the report saved on that conversation.
+- Multi-floor plan types (`floors[]`, shared `core`, `verticalChecks`) and
+  bounded conversation continuation.
+- Complete typed contracts for every Vastu operation, validated against the
+  recorded Rust response fixtures.
+
+### Changed
+- Vastu provenance labels. These API responses changed on 2026-09-17:
+  - Score `verdict` strings now describe agreement with the scored placement
+    rules instead of giving building advice.
+  - The top-level `verified` field is now `false` on `room/*`,
+    `placement/borewell`, `placement/well`, placement and specialized results
+    when the guidance is later convention. Use `placementVerified` and the
+    per-field source labels to find the parts backed by a classical verse.
+  - `reference/mandala/9-zone` labels every row `convention` and lists the
+    verse-backed rooms, deity and element sources separately.
+  - Remedies carry `remedyClassification` and `remedySource`.
+  If your code shows `verdict` text or checks `verified`, review it for this
+  change.
+
+### Fixed
+- Package artifacts no longer carry internal service or provider names.
+- Declination sandbox and executable examples match the live contract.
+
+## [3.0.7] - 2026-09-07
+
+### Security
+- **The API key now only ever goes to a Vedika origin.** `baseUrl` previously
+  accepted any host, so a misconfigured deployment — or an attacker-controlled
+  value arriving through an environment variable or a compromised config —
+  received a live `vk_live_*` key in the `Authorization` and `X-API-Key` headers
+  of the first request. `baseUrl` is now restricted to `vedika.io` and its
+  subdomains over HTTPS, plus loopback for local development; anything else
+  throws `AuthenticationError` at construction. **Everyone on 3.0.5 or earlier
+  should upgrade.**
+- **Every request is re-checked against that origin.** axios ignores `baseURL`
+  when a request URL is absolute or protocol-relative, and a per-request
+  `baseURL` overrides the instance default — so the construction-time check was
+  not by itself the guarantee. A request interceptor now resolves each outgoing
+  URL against the approved origin and refuses anything that lands elsewhere.
+- **A routing refusal is no longer retried or retyped.** The response-error
+  handler treated the interceptor's throw as a transport failure: it re-dialled
+  the refusal up to three times and then reported it as a generic
+  `VedikaAPIError`. Typed SDK errors now surface unchanged.
+
+### Removed (breaking, but no published consumer)
+- **`allowInsecureHttp`.** This 3.0.6-only option opted in to sending the key
+  over remote cleartext HTTP. 3.0.6 was never published to npm — the option is
+  absent from the released 3.0.5 artifact — so no published version ever exposed
+  it and no consumer can be relying on it. Sending a live key in the clear is not
+  a supported mode.
+
+## [3.0.6] - 2026-06-15 — NEVER PUBLISHED TO NPM
+
+> This version was built but never released; npm went 3.0.5 → 3.0.7. Its
+> `baseUrl` policy below is superseded by 3.0.7: the HTTPS-only rule it describes
+> still allowed *any* HTTPS host, including an attacker's, and its
+> `allowInsecureHttp` opt-in was removed before release.
+
+### Added (2026-08-11)
+- **Full Vastu Shastra surface** — 76 operations across 17 families (mandala projection, entrance, rooms, site placements, compliance audits, scoring, floor-plan generation, reference tables, direction/declination), all under `/v2/astrology/vastu/`. Generic `vastu(op, params)` escape hatch plus named helpers: `vastuReference()`, `vastuMandalaProject()`, `vastuEntrancePada()`/`vastuEntranceRecommend()`, `vastuRoom()`, `vastuPlacement()`, `vastuAudit()`, `vastuScore()`, `vastuPlanGenerate()`/`vastuPlanFromRequirements()`, `vastuDeclination()`. Verb selection is automatic: `reference/*` and `direction/declination` dispatch GET, everything else POST. Vastu takes a building (plot polygon, rooms, compass zone) — never a birth chart.
+
+### Security (2026-08-11)
+- **Fixed cross-origin redirect credential forwarding.** The legacy `X-API-Key` header was still forwarded to a redirect destination even when axios correctly stripped `Authorization` on a cross-origin or HTTPS→HTTP-downgrade redirect, leaking the key off-origin. Both headers are now stripped together on any such redirect. Node transport only — the browser XHR/fetch adapter follows redirects opaquely and can't be intercepted; browser callers should use a server proxy or an origin-restricted browser-safe credential.
+- **Added a `baseUrl` origin policy.** The API key is now attached only to HTTPS origins by default; a non-loopback `http://` `baseUrl` is rejected unless the new `allowInsecureHttp: true` client option opts in. Loopback (`localhost`, `127.0.0.1`, `::1`) is always allowed for local dev.
+
+### Changed (transition-compat — no breaking changes)
+- **Resilient v2-envelope unwrapping for the platform transition.** The central response interceptor previously required a top-level `billing` block to recognise the `{ success, data, ... }` envelope. Some response families now send the envelope without `billing` (it can move into `meta` or be omitted on free/idempotent paths), which left those payloads wrapped — callers on the direct-return methods (`matrimony`, `getWesternRelationship`, `spiritual.*`, `humanDesign.*`, `iching.*`) received the raw envelope instead of the reading. Unwrapping is now keyed on the `success === true && data` signature shared by all responses; v1 shapes (`askQuestion`, `getBirthChart`) are still never touched.
+- **`getWesternRelationship()` is now transition-tolerant.** Synastry/composite interpretive prose (`interpretation`, per-aspect `orbQuality`/`signifies`) may be absent on some responses while the computed geometry stays parity-exact. The result is normalized so those keys are always at least present, and a new optional `WesternRelationshipResult` type makes every prose field optional so typed consumers never break on a missing block. The full raw payload is preserved via an index signature.
+
+### Added
+- `normalizeWesternRelationship()` helper + `WesternRelationshipResult` / `SynastryAspect` types (all prose fields optional).
+
+### Notes
+- Fully backward-compatible. No request shape, method signature widening only (return types broadened to supersets), or pricing changes. Existing consumers upgrade transparently.
+
 ## [2.3.0] - 2026-04-17
 
 ### Added
