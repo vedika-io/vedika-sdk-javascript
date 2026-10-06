@@ -42,7 +42,7 @@ VEDIKA_API_KEY=vk_live_...
   - Better user experience
   - Best for: Interactive applications
 
-- **`vastu.js`** - Vastu Shastra building analysis (93 operations)
+- **`vastu.js`** - Vastu Shastra building analysis (98 operations)
   - 9-zone mandala projection, room placement, compliance scoring
   - Takes a plot/building, not a birth chart
   - Best for: Architecture and interior-placement analysis

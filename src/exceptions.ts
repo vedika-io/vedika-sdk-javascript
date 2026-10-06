@@ -22,13 +22,25 @@
  */
 export class VedikaAPIError extends Error {
   public statusCode?: number;
+  /** Machine-readable `code` from the JSON error body, e.g. `INSUFFICIENT_BALANCE`. */
+  public code?: string;
+  /** The parsed JSON error body, when the server sent one. */
+  public body?: Record<string, any>;
 
-  constructor(message: string, statusCode?: number) {
+  constructor(message: string, statusCode?: number, details?: VedikaErrorDetails) {
     super(message);
     this.name = 'VedikaAPIError';
     this.statusCode = statusCode;
+    if (details?.code !== undefined) this.code = details.code;
+    if (details?.body !== undefined) this.body = details.body;
     Object.setPrototypeOf(this, VedikaAPIError.prototype);
   }
+}
+
+/** Extra context the SDK attaches to an API error. */
+export interface VedikaErrorDetails {
+  code?: string;
+  body?: Record<string, any>;
 }
 
 /**
@@ -56,8 +68,8 @@ export class VedikaAPIError extends Error {
  * ```
  */
 export class AuthenticationError extends VedikaAPIError {
-  constructor(message: string = 'Invalid API key') {
-    super(message, 401);
+  constructor(message: string = 'Invalid API key', details?: VedikaErrorDetails) {
+    super(message, 401, details);
     this.name = 'AuthenticationError';
     Object.setPrototypeOf(this, AuthenticationError.prototype);
   }
@@ -94,10 +106,44 @@ export class AuthenticationError extends VedikaAPIError {
  * ```
  */
 export class RateLimitError extends VedikaAPIError {
-  constructor(message: string = 'Rate limit exceeded') {
-    super(message, 429);
+  /** Seconds the server asked the caller to wait (body `retryAfter`), when present. */
+  public retryAfter?: number;
+  /** The limits the server reported for the refused window, when present. */
+  public limits?: Record<string, any>;
+
+  constructor(message: string = 'Rate limit exceeded', details?: RateLimitDetails) {
+    super(message, 429, details);
     this.name = 'RateLimitError';
+    if (details?.retryAfter !== undefined) this.retryAfter = details.retryAfter;
+    if (details?.limits !== undefined) this.limits = details.limits;
     Object.setPrototypeOf(this, RateLimitError.prototype);
+  }
+}
+
+/** Context for a 429. */
+export interface RateLimitDetails extends VedikaErrorDetails {
+  retryAfter?: number;
+  limits?: Record<string, any>;
+}
+
+/**
+ * The plan's daily call allowance is used up (`DAILY_LIMIT_EXCEEDED`).
+ *
+ * The SDK never retries this: the allowance does not come back until the next
+ * day, so a retry only repeats the refusal. Upgrade the plan or wait.
+ */
+export class DailyLimitExceededError extends RateLimitError {
+  /** Where to raise the plan limit, when the server says. */
+  public upgradeUrl?: string;
+  /** Daily usage the server reported, when present. */
+  public usage?: Record<string, any>;
+
+  constructor(message: string = 'Daily call limit exceeded', details?: RateLimitDetails & { upgradeUrl?: string; usage?: Record<string, any> }) {
+    super(message, details);
+    this.name = 'DailyLimitExceededError';
+    if (details?.upgradeUrl !== undefined) this.upgradeUrl = details.upgradeUrl;
+    if (details?.usage !== undefined) this.usage = details.usage;
+    Object.setPrototypeOf(this, DailyLimitExceededError.prototype);
   }
 }
 
@@ -130,11 +176,32 @@ export class RateLimitError extends VedikaAPIError {
  * ```
  */
 export class InsufficientCreditsError extends VedikaAPIError {
-  constructor(message: string = 'Insufficient credits') {
-    super(message, 402);
+  /** USD the call needed (`wallet.required`). */
+  public required?: number;
+  /** USD in the wallet (`wallet.available`). */
+  public available?: number;
+  /** USD short (`wallet.deficit`). */
+  public deficit?: number;
+  /** Where to add funds, when the server says. */
+  public purchaseUrl?: string;
+
+  constructor(message: string = 'Insufficient credits', details?: InsufficientCreditsDetails) {
+    super(message, 402, details);
     this.name = 'InsufficientCreditsError';
+    if (details?.required !== undefined) this.required = details.required;
+    if (details?.available !== undefined) this.available = details.available;
+    if (details?.deficit !== undefined) this.deficit = details.deficit;
+    if (details?.purchaseUrl !== undefined) this.purchaseUrl = details.purchaseUrl;
     Object.setPrototypeOf(this, InsufficientCreditsError.prototype);
   }
+}
+
+/** Context for a 402. */
+export interface InsufficientCreditsDetails extends VedikaErrorDetails {
+  required?: number;
+  available?: number;
+  deficit?: number;
+  purchaseUrl?: string;
 }
 
 /**
@@ -164,8 +231,8 @@ export class InsufficientCreditsError extends VedikaAPIError {
  * ```
  */
 export class SubscriptionExpiredError extends VedikaAPIError {
-  constructor(message: string = 'Subscription expired') {
-    super(message, 402);
+  constructor(message: string = 'Subscription expired', details?: VedikaErrorDetails) {
+    super(message, 402, details);
     this.name = 'SubscriptionExpiredError';
     Object.setPrototypeOf(this, SubscriptionExpiredError.prototype);
   }
@@ -211,8 +278,8 @@ export class SubscriptionExpiredError extends VedikaAPIError {
  * ```
  */
 export class ValidationError extends VedikaAPIError {
-  constructor(message: string = 'Validation error') {
-    super(message, 422);
+  constructor(message: string = 'Validation error', details?: VedikaErrorDetails) {
+    super(message, 422, details);
     this.name = 'ValidationError';
     Object.setPrototypeOf(this, ValidationError.prototype);
   }
@@ -246,8 +313,8 @@ export class ValidationError extends VedikaAPIError {
  * ```
  */
 export class TimeoutError extends VedikaAPIError {
-  constructor(message: string = 'Request timed out') {
-    super(message, 408);
+  constructor(message: string = 'Request timed out', details?: VedikaErrorDetails) {
+    super(message, 408, details);
     this.name = 'TimeoutError';
     Object.setPrototypeOf(this, TimeoutError.prototype);
   }
@@ -266,12 +333,13 @@ export class TimeoutError extends VedikaAPIError {
  * - Wait a few moments if service is down
  * - Contact support@vedika.io if issue persists
  *
- * The SDK does not automatically retry failed requests.
- * Callers must control retries to avoid repeating a billable operation.
+ * The SDK retries 502/503/504 only for requests that are safe to repeat: GETs,
+ * and POSTs that carry an Idempotency-Key the server dedupes on. It never
+ * retries a billable POST that has no key, because that could charge twice.
  */
 export class ServerError extends VedikaAPIError {
-  constructor(message: string = 'Internal server error', statusCode: number = 500) {
-    super(message, statusCode);
+  constructor(message: string = 'Internal server error', statusCode: number = 500, details?: VedikaErrorDetails) {
+    super(message, statusCode, details);
     this.name = 'ServerError';
     Object.setPrototypeOf(this, ServerError.prototype);
   }

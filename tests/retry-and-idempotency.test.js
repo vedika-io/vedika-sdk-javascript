@@ -149,7 +149,8 @@ describe('paid Vastu GET request identity', () => {
       return { data: { ok: true } };
     });
     const operations = Object.entries(VedikaClient.VASTU_OPERATION_CONTRACTS)
-      .filter(([, contract]) => contract.method === 'GET' || contract.method === 'GET_OR_POST');
+      // Rule versions and job status/results are free reads, not billed GETs.
+      .filter(([operation, contract]) => operation !== 'rules/versions' && !operation.startsWith('jobs/') && (contract.method === 'GET' || contract.method === 'GET_OR_POST'));
     expect(operations).toHaveLength(12);
     for (const prefix of ['/v2/vastu/', '/v2/astrology/vastu/']) {
       for (const [operation] of operations) {
@@ -184,7 +185,8 @@ describe('paid Vastu GET request identity', () => {
       expect(config.headers['Idempotency-Key']).toBeUndefined();
       return { data: { ok: true } };
     });
-    for (const path of ['/health', '/sandbox/vastu/reference/directions/8', '/v2/vastu/reference/unknown', '/v2/vastu/audit/floor-plan']) {
+    for (const path of ['/health', '/sandbox/vastu/reference/directions/8', '/v2/vastu/reference/unknown', '/v2/vastu/audit/floor-plan', ...['/v2/vastu/', '/v2/astrology/vastu/'].flatMap(prefix =>
+      ['rules/versions', 'jobs/vjob_123', 'jobs/vjob_123/results'].map(operation => prefix + operation))]) {
       await client.client.get(path);
     }
   });
@@ -247,5 +249,37 @@ describe('__envelope carries billing/meta hidden by the response unwrap', () => 
     expect(result.__envelope.meta).toEqual({ engine: 'vedika-intelligence' });
     // Non-enumerable: doesn't leak into JSON.stringify.
     expect(JSON.stringify(result)).not.toContain('billing');
+  });
+});
+
+describe('scan operations carry their identity in the body', () => {
+  // The server answers 422 IDEMPOTENCY_CONTRACT_UNSUPPORTED to any retry header
+  // on scan save/retrieve/list/timelapse; scanId or requestId is the identity.
+  test('a scan read sends no retry header and is still retried', async () => {
+    const client = new VedikaClient({ apiKey: 'vk_test_x', maxRetries: 2 });
+    client.sleep = () => Promise.resolve();
+    const seen = [];
+    installAdapter(client, async (config) => {
+      seen.push(Object.keys(config.headers || {}).map((k) => k.toLowerCase()));
+      if (seen.length < 2) return { reject: true, status: 503 };
+      return { data: { success: true, data: { scans: [], nextCursor: null } } };
+    });
+    await client.vastuOperation('scans/list', { requestId: 'request-00000001', limit: 1 });
+    expect(seen.length).toBe(2);
+    for (const keys of seen) {
+      expect(keys).not.toContain('idempotency-key');
+      expect(keys).not.toContain('x-idempotency-key');
+      expect(keys).not.toContain('x-request-id');
+    }
+  });
+
+  test('a caller key on a scan operation is refused before sending', async () => {
+    const client = new VedikaClient({ apiKey: 'vk_test_x' });
+    let sent = 0;
+    installAdapter(client, async () => { sent += 1; return { data: {} }; });
+    await expect(
+      client.vastuOperation('scans/list', { requestId: 'request-00000001', limit: 1 }, { idempotencyKey: 'k' })
+    ).rejects.toThrow(/requestId/);
+    expect(sent).toBe(0);
   });
 });

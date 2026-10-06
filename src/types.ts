@@ -74,6 +74,11 @@ export interface VastuReportQuestion {
   question: string;
   /** The Vastu response to discuss. Omit on a follow-up that passes `conversationId`. */
   report?: Record<string, unknown>;
+  /**
+   * An uploaded report PDF, from `uploadVastuReport` (POST /api/v1/vastu/chat/uploads).
+   * Send exactly one of `report` or `reportRef`; a follow-up may send neither.
+   */
+  reportRef?: { type: 'upload'; id: string };
   /** Continue a conversation; its saved report is reused when `report` is omitted. */
   conversationId?: string;
   language?: string;
@@ -386,9 +391,9 @@ export interface VedikaClientOptions {
   /**
    * API base URL (default: `https://api.vedika.io`).
    *
-   * Must be a Vedika origin (`vedika.io` or a `*.vedika.io` subdomain) over
-   * HTTPS, or loopback for local development. Any other origin throws: the
-   * client would otherwise send your API key there. To route calls through
+   * Must be exactly `https://api.vedika.io`, or loopback HTTP for local
+   * development, with no path, query or credentials. Any other origin throws:
+   * the client would otherwise send your API key there. To route calls through
    * your own gateway, proxy them server-side and keep the key on the server.
    */
   baseUrl?: string;
@@ -540,13 +545,58 @@ export type WesternRelationshipType = 'synastry' | 'synastry-aspects' | 'composi
 // ═══════════════════════════════════════════
 export type VastuJsonValue = string | number | boolean | null | VastuJsonValue[] | { [key: string]: VastuJsonValue };
 export const VASTU_OPERATIONS = [
+  "remediation/tasks/upsert",
+  "remediation/tasks/list",
+  "remediation/tasks/delete",
+  "remediation/reassess",
+  "merchant/catalog/upload",
+  "merchant/catalog/get",
+  "merchant/catalog/delete",
+  "merchant/remedies",
+  'portfolio/search',
+  'portfolio/compare',
+  'portfolio/analytics',
+  'portfolio/usage',
+  'portfolio/usage/export',
+  'portfolio/budgets/set',
+  'portfolio/budgets/get',
+  "report/drawing-sheet",
+  "properties/collaboration/get",
+  "properties/collaboration/invite",
+  "properties/collaboration/revoke",
+  "properties/collaboration/members",
+  "properties/collaboration/comment",
+  "properties/collaboration/review",
+  "properties/collaboration/update",
+  "properties/activity/list",
+  "properties/activity/export",
+
+  "properties/create",
+  "properties/update",
+  "properties/get",
+  "properties/list",
+  "properties/delete",
+  "properties/link-scan",
+  "archive/tier",
+  "archive/export",
+  "archive/delete",
+  "archive/summary",
+  "feed/listings",
+  "quote/calculate",
+
   "scans/timelapse",
+  "plan/compare-versions",
+  "receipt/verify",
+  "rules/versions",
   "scans/delete",
   "scans/list",
   "scans/retrieve",
   "scans/save",
   "ar/deity-icons",
+  "ar/capture-merge",
+  "plot/from-survey",
   "ar/room-capture",
+  "ar/attestation/challenge",
   "ar/yantra-meshes",
   "ar/zone-textures",
   "ar/anchor-recommendations",
@@ -591,6 +641,13 @@ export const VASTU_OPERATIONS = [
   "plan/generate",
   "plan/optimize",
   "plan/report",
+  "plan/import-dxf",
+  "plan/export-dxf",
+  "plan/export-ifc",
+  "plan/convert-units",
+  "plan/import-ifc",
+  "plan/import-image",
+  "plan/import-pdf",
   "plan/upload",
   "plot/extensions-cuts",
   "plot/orientation",
@@ -633,8 +690,14 @@ export const VASTU_OPERATIONS = [
   "timing/construction-start",
   "timing/grihapravesh",
   "timing/vastu-shanti",
+  "jobs",
+  "jobs/{id}",
+  "jobs/{id}/results",
+  "jobs/{id}/cancel",
 ] as const;
 export type VastuOperation = (typeof VASTU_OPERATIONS)[number];
+/** Job operations whose path carries a jobId. Use the typed `vastuJob*` methods, not `vastuOperation`. */
+export type VastuJobIdOperation = 'jobs/{id}' | 'jobs/{id}/results' | 'jobs/{id}/cancel';
 export interface VastuApiKeyAuth { apiKey: string }
 /** Concrete operation envelopes retain required fields; legacy envelope types stay optional. */
 export interface VastuResponseBilling extends VastuBilling { charged: number; currency: string; balanceAfter: number; endpoint: string; category: string }
@@ -644,10 +707,14 @@ export interface VastuResponse<Data> { success: true; data: Data; billing: Vastu
 /** Assessment can return valid insufficient-data results without billing. */
 export interface VastuResponseWithOptionalBilling<Data> { success: true; data: Data; billing?: VastuResponseBilling; meta: VastuResponseMeta }
 export interface VastuArHeatmapRasterRequestRoomsItem {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
   roomType: string;
   zone: string;
 }
-export interface VastuArHeatmapRasterRequest {
+export interface VastuArHeatmapRasterRequest extends VastuUsageAttribution {
   rooms: Array<VastuArHeatmapRasterRequestRoomsItem>;
   plotPolygon?: Array<Array<number>>;
   bearingDeg?: number;
@@ -658,19 +725,19 @@ export interface VastuArPlanToWorld {
   xAxis: Array<number>;
   yAxis: Array<number>;
 }
-export interface VastuArAnchorRecommendationsRequest {
+export interface VastuArAnchorRecommendationsRequest extends VastuUsageAttribution {
   plotPolygon: Array<Array<number>>;
   bearingDeg: number;
   planToWorld: VastuArPlanToWorld;
 }
-export interface VastuArZoneTexturesRequest {
+export interface VastuArZoneTexturesRequest extends VastuUsageAttribution {
   zone?: "NW" | "N" | "NE" | "W" | "CENTER" | "E" | "SW" | "S" | "SE";
 }
-export interface VastuArYantraMeshesRequest {
+export interface VastuArYantraMeshesRequest extends VastuUsageAttribution {
   model: "nine-zone-mandala";
   format?: "gltf" | "usdz";
 }
-export interface VastuArDeityIconsRequest {
+export interface VastuArDeityIconsRequest extends VastuUsageAttribution {
   zone?: "NW" | "N" | "NE" | "W" | "CENTER" | "E" | "SW" | "S" | "SE";
 }
 export interface VastuRoomCaptureDevice {
@@ -679,6 +746,7 @@ export interface VastuRoomCaptureDevice {
   depth: "lidar" | "arcore-depth" | "none";
 }
 export interface VastuRoomCaptureFrameNorth {
+  units?: string;
   referenceFrame: "true" | "manual" | "magnetic";
   headingSource: string;
   declinationDeg?: number | null;
@@ -698,6 +766,9 @@ export interface VastuRoomCaptureOutline {
   source: "traced";
 }
 export interface VastuRoomCaptureRoomsItemOpeningsItem {
+  id?: string;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   kind: "door" | "window" | "opening";
   centerXY: Array<number>;
   widthM: number;
@@ -738,9 +809,114 @@ export interface VastuRoomCapture {
   quality: VastuRoomCaptureQuality;
   attestation: "caller-reported";
 }
-export interface VastuArRoomCaptureRequest {
+/** Optional native-app device attestation proof; see `ar/attestation/challenge`. */
+export interface VastuDeviceAttestation {
+  platform: "ios" | "android";
+  challenge: string;
+  /** iOS: base64 App Attest key identifier. */
+  keyId?: string;
+  /** iOS first use: base64 attestation object. */
+  attestationObject?: string;
+  /** iOS later use: base64 assertion. */
+  assertion?: string;
+  /** Android: Play Integrity token. */
+  integrityToken?: string;
+}
+export interface VastuArAttestationChallengeRequest extends VastuUsageAttribution {
+  platform: "ios" | "android";
+}
+export interface VastuArCaptureMergeRequestLinksItemControlPointsItem {
+  fromXY: Array<number>;
+  toXY: Array<number>;
+}
+
+export interface VastuArCaptureMergeRequestLinksItemSharedDoorsItem {
+  fromXY: Array<number>;
+  toXY: Array<number>;
+}
+
+export interface VastuArCaptureMergeRequestFloorsItem {
+  floorIndex: number;
+  elevationM: number;
+  originXY: Array<number>;
+  bearingDeg: number;
+}
+
+export interface VastuArCaptureMergeRequestCapturesItem {
+  id: string;
+  floorIndex: number;
+  payload: VastuRoomCapture;
+}
+
+export interface VastuArCaptureMergeRequestLinksItem {
+  fromCaptureId: string;
+  toCaptureId: string;
+  controlPoints?: Array<VastuArCaptureMergeRequestLinksItemControlPointsItem>;
+  sharedDoors?: Array<VastuArCaptureMergeRequestLinksItemSharedDoorsItem>;
+}
+
+export interface VastuPlotFromSurveyRequestControlPointsItem {
+  units?: string;
+  id: string;
+  xy: Array<number>;
+}
+
+export interface VastuArCaptureMergeRequest extends VastuUsageAttribution {
+  maxChargeUsd?: string;
+  captures: Array<VastuArCaptureMergeRequestCapturesItem>;
+  links: Array<VastuArCaptureMergeRequestLinksItem>;
+  floors: Array<VastuArCaptureMergeRequestFloorsItem>;
+  toleranceM: number;
+}
+
+export interface VastuPlotFromSurveyRequest extends VastuUsageAttribution {
+  maxChargeUsd?: string;
+  crs: string;
+  units: string;
+  boundary: Array<Array<number>>;
+  controlPoints?: Array<VastuPlotFromSurveyRequestControlPointsItem>;
+  origin?: Array<number>;
+}
+
+export interface VastuOptimizationConstraintsWetShaftsItem {
+  id: string;
+  polygon: Array<Array<number>>;
+  roomIds?: Array<string>;
+  maxDistanceM?: number;
+}
+
+export interface VastuOptimizationConstraintsPlumbingStacksItem {
+  id: string;
+  polygon: Array<Array<number>>;
+  roomIds?: Array<string>;
+  maxDistanceM?: number;
+}
+
+export interface VastuOptimizationConstraintsColumnsItem {
+  id?: string;
+  polygon: Array<Array<number>>;
+}
+
+export interface VastuOptimizationConstraintsLoadBearingWallsItem {
+  id?: string;
+  polygon: Array<Array<number>>;
+}
+
+export interface VastuOptimizationConstraints {
+  lockedRooms?: Array<string>;
+  wetShafts?: Array<VastuOptimizationConstraintsWetShaftsItem>;
+  plumbingStacks?: Array<VastuOptimizationConstraintsPlumbingStacksItem>;
+  loadBearingWalls?: Array<VastuOptimizationConstraintsLoadBearingWallsItem>;
+  columns?: Array<VastuOptimizationConstraintsColumnsItem>;
+  minSizes?: Record<string, VastuJsonValue>;
+}
+
+export interface VastuArRoomCaptureRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   capture: VastuRoomCapture;
   zoneResolution?: 8 | 16 | 32;
+  deviceAttestation?: VastuDeviceAttestation;
 }
 export interface VastuScanSnapshotRoomsItem {
   roomType: string;
@@ -765,31 +941,33 @@ export interface VastuScanSnapshot {
   telemetry?: VastuScanTelemetry;
   capture?: VastuRoomCapture;
 }
-export interface VastuScansSaveRequest {
+export interface VastuScansSaveRequest extends VastuUsageAttribution {
   scanId: string;
   propertyId: string;
   title: string;
   retentionDays: number;
   snapshot: VastuScanSnapshot;
+  /** Accepted only with `snapshot.capture`; verified before storage and billing, never stored. */
+  deviceAttestation?: VastuDeviceAttestation;
 }
-export interface VastuScansRetrieveRequest {
+export interface VastuScansRetrieveRequest extends VastuUsageAttribution {
   requestId: string;
   scanId: string;
 }
-export interface VastuScansListRequest {
+export interface VastuScansListRequest extends VastuUsageAttribution {
   requestId: string;
   limit: number;
   cursor?: string | null;
 }
-export interface VastuScansDeleteRequest {
+export interface VastuScansDeleteRequest extends VastuUsageAttribution {
   scanId: string;
 }
-export interface VastuScansTimelapseRequest {
+export interface VastuScansTimelapseRequest extends VastuUsageAttribution {
   requestId: string;
   scanIds: Array<string>;
 }
 
-export interface VastuArScanQualityRequest {
+export interface VastuArScanQualityRequest extends VastuUsageAttribution {
   "pointCloudDensity"?: number;
   "polygonClosure"?: boolean;
   "roomsTagged"?: number | boolean;
@@ -803,8 +981,9 @@ export interface VastuArScanQualityRequest {
   "polygonClosed"?: boolean;
   "coveragePercent"?: number;
   "pointCloudDensityBasis"?: "feature-points" | "lidar-depth" | "none" | null;
+  "deviceAttestation"?: VastuDeviceAttestation;
 }
-export interface VastuArTrueNorthCalibrateRequest {
+export interface VastuArTrueNorthCalibrateRequest extends VastuUsageAttribution {
   "lat": number;
   "lon": number;
   "datetime": string;
@@ -813,13 +992,17 @@ export interface VastuArTrueNorthCalibrateRequest {
   "headingSampleAgeMs"?: number;
 }
 /** Retain this key when retrying a logical call after restarting the client. */
-export interface VastuCallOptions {
+export interface VastuCallOptions extends VastuUsageAttribution {
   idempotencyKey?: string;
 }
 
-export interface VastuAssessmentsRequest {
+export interface VastuAssessmentsRequest extends VastuUsageAttribution {
+  rulesVersion?: string;
+  receipt?: boolean;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "inputSource": string;
-  "rooms"?: Array<{ "roomType": string; "zone": string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+  "rooms"?: Array<{ "roomType": string; "zone": string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plotPolygon"?: Array<Array<number>>;
   "doorXY"?: Array<number>;
   "bearingDeg"?: number;
@@ -833,104 +1016,188 @@ export interface VastuAssessmentsRequest {
   "scannedAreaM2"?: number;
 }
 /** One to twenty items. Item IDs must be unique; retain the caller key for retries. */
-export interface VastuAssessmentsBatchRequest {
+export interface VastuAssessmentsBatchRequest extends VastuUsageAttribution {
   items: Array<{ id: string; assessment: VastuAssessmentsRequest }>;
 }
 
-export interface VastuAuditFloorPlanDetailedRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+
+/** Lifecycle of an async Vastu job. */
+export type VastuJobStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
+/**
+ * Queue 1 to 1,000 assessment inputs (POST /v2/vastu/jobs). The call requires a
+ * caller-retained `Idempotency-Key`: the same key and body return the same jobId.
+ */
+export interface VastuJobsRequest extends VastuUsageAttribution {
+  operation: 'assessments' | 'plan-analyze' | 'plan-report';
+  items: Array<{ id: string; input: VastuAssessmentsRequest | VastuPlanAnalyzeRequest | VastuPlanReportRequest }>;
+  /** An active webhook on this account that receives the final job event. */
+  webhookId?: string;
+}
+export interface VastuJobResultItem {
+  artifacts?: Array<{artifactId: string; jobId: string; itemId: string; contentType: string; filename: string; content: string}>;
+  id: string;
+  index: number;
+  /** The HTTP status the single-item call would have returned. */
+  status: number;
+  code?: string | null;
+  /** The exact single-item response envelope, including its billing block. */
+  response: Record<string, unknown>;
+}
+/** The submit data with its sandbox preview typed as result items. */
+export interface VastuJobSubmitResult extends Omit<VastuJobSubmitData, 'preview'> { preview?: VastuJobResultItem[] }
+/** One page of results with the items typed. */
+export interface VastuJobResultsPage extends Omit<VastuJobResultsData, 'results'> { results: VastuJobResultItem[] }
+export interface VastuJobsResponse { success: true; data: VastuJobSubmitResult }
+export interface VastuJobsIdResponse { success: true; data: VastuJobStatusData }
+export interface VastuJobsIdResultsResponse { success: true; data: VastuJobResultsPage }
+export interface VastuJobsIdCancelResponse { success: true; data: VastuJobStatusData }
+/** Options for reading a page of job results. Cursor pagination only; there is no offset. */
+export interface VastuJobResultsOptions {
+  cursor?: string;
+}
+
+/** Response of POST /api/v1/vastu/chat/uploads. Pass `uploadId` as `reportRef.id`. */
+/** A PDF to upload as a report (a Node `Buffer` is a `Uint8Array`). */
+export interface VastuChatUploadFile {
+  data: Uint8Array | ArrayBuffer;
+  /** Defaults to `report.pdf`. */
+  filename?: string;
+}
+
+export interface VastuAuditFloorPlanDetailedRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plotPolygon"?: Array<Array<number>>;
   "bearingDeg"?: number;
 }
-export interface VastuAuditFloorPlanRequest {
-  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuAuditFloorPlanRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "text"?: string;
 }
-export interface VastuAuditSingleRoomRequest {
+export interface VastuAuditSingleRoomRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "roomType": string;
   "zone": string;
 }
-export interface VastuCompareBeforeAfterRemedyRequest {
-  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuCompareBeforeAfterRemedyRequest extends VastuUsageAttribution {
+  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "text"?: string;
   "remedies": Array<{ "room"?: string; "name"?: string; "roomType"?: string; "toZone": string; "zone"?: string; }>;
 }
-export interface VastuCompoundWallAnalysisRequest {
+export interface VastuCompoundWallAnalysisRequest extends VastuUsageAttribution {
   "walls"?: Array<Record<string, VastuJsonValue>> | Record<string, VastuJsonValue>;
 }
-export interface VastuDirectionAuspiciousFacingRequest {
+export interface VastuDirectionAuspiciousFacingRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "purpose": string;
   "occupant"?: string;
 }
-export interface VastuDirectionCorrectRequest {
+export interface VastuDirectionCorrectRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "direction": string;
   "lat": number;
   "lon": number;
   "date"?: string;
 }
-export interface VastuDirectionDeclinationRequest {
+export interface VastuDirectionDeclinationRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "lat": number;
   "lon": number;
   "date"?: string;
 }
-export interface VastuDirectionSunPathRequest {
+export interface VastuDirectionSunPathRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "lat": number;
   "lon": number;
   "date"?: string;
 }
-export interface VastuDirectionZoneFromBearingRequest {
+export interface VastuDirectionZoneFromBearingRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "bearingDeg": number;
 }
-export interface VastuElementsBalanceSuggestRequest {
+export interface VastuElementsBalanceSuggestRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "distribution"?: Record<string, VastuJsonValue>;
   "deficient"?: Array<string>;
   "excess"?: Array<string>;
 }
-export interface VastuElementsDistributionRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuElementsDistributionRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
 }
-export interface VastuEntranceObstructionCheckRequest {
+export interface VastuEntranceObstructionCheckRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "feature": string;
   "houseHeightMeters"?: number;
   "distanceMeters"?: number;
 }
-export interface VastuEntrancePadaRequest {
+export interface VastuEntrancePadaRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon": Array<Array<number>>;
   "doorXY": Array<number>;
   "bearingDeg"?: number;
 }
-export interface VastuEntranceRecommendRequest {
+export interface VastuEntranceRecommendRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "facing": string;
 }
-export interface VastuFloorLevelAnalysisRequest {
+export interface VastuFloorLevelAnalysisRequest extends VastuUsageAttribution {
   "levels"?: Array<Record<string, VastuJsonValue>> | Record<string, VastuJsonValue>;
 }
-export interface VastuFusionChartRequest {
+export interface VastuFusionChartRequest extends VastuUsageAttribution {
   "datetime": string;
   "latitude": number;
   "longitude": number;
   "timezone"?: string;
   "facing"?: string;
 }
-export interface VastuMandalaProject81PadaRequest {
+export interface VastuMandalaProject81PadaRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon": Array<Array<number>>;
   "bearingDeg"?: number;
   "doorXY"?: Array<number>;
 }
-export interface VastuMandalaProject9ZoneRequest {
+export interface VastuMandalaProject9ZoneRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon": Array<Array<number>>;
   "bearingDeg"?: number;
   "doorXY"?: Array<number>;
 }
-export interface VastuMandalaProjectBrahmasthanRequest {
+export interface VastuMandalaProjectBrahmasthanRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon": Array<Array<number>>;
   "bearingDeg"?: number;
   "doorXY"?: Array<number>;
 }
-export interface VastuMultiStoreyFloorRulesRequest {
+export interface VastuMultiStoreyFloorRulesRequest extends VastuUsageAttribution {
   "floors": number;
 }
-export interface VastuPlacementBalconyRequest {
+export interface VastuPlacementBalconyRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -939,7 +1206,12 @@ export interface VastuPlacementBalconyRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementBorewellRequest {
+export interface VastuPlacementBorewellRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -948,7 +1220,12 @@ export interface VastuPlacementBorewellRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementGardenRequest {
+export interface VastuPlacementGardenRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -957,7 +1234,12 @@ export interface VastuPlacementGardenRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementGeneratorElectricalRequest {
+export interface VastuPlacementGeneratorElectricalRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -966,13 +1248,23 @@ export interface VastuPlacementGeneratorElectricalRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementMainGateRequest {
+export interface VastuPlacementMainGateRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "facing": string;
   "direction"?: string;
   "zone"?: string;
   "pada"?: number;
 }
-export interface VastuPlacementOverheadTankRequest {
+export interface VastuPlacementOverheadTankRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -981,7 +1273,12 @@ export interface VastuPlacementOverheadTankRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementSepticTankRequest {
+export interface VastuPlacementSepticTankRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -990,7 +1287,12 @@ export interface VastuPlacementSepticTankRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementTreeRequest {
+export interface VastuPlacementTreeRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -999,7 +1301,12 @@ export interface VastuPlacementTreeRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementWellRequest {
+export interface VastuPlacementWellRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1008,7 +1315,12 @@ export interface VastuPlacementWellRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlacementWindowRequest {
+export interface VastuPlacementWindowRequest extends VastuUsageAttribution {
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1017,15 +1329,28 @@ export interface VastuPlacementWindowRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuPlanAnalyzeRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuPlanAnalyzeRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  rulesVersion?: string;
+  receipt?: boolean;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plot"?: Record<string, VastuJsonValue>;
   "zoneResolution"?: 8 | 16 | 32;
 }
-export interface VastuPlanFromRequirementsRequest {
-  "plot": { "width"?: number; "length"?: number; "facing"?: string; "polygon"?: Array<Array<number>>; "setbacks"?: { "front"?: number; "rear"?: number; "left"?: number; "right"?: number; }; };
+export interface VastuPlanFromRequirementsRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  plotPolygon?: Array<[number, number] | { x: number; y: number }>;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "plot": { "width"?: number; "length"?: number; "facing"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "setbacks"?: { "front"?: number; "rear"?: number; "left"?: number; "right"?: number; }; };
   "entrance"?: Record<string, VastuJsonValue>;
-  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "requirements"?: Record<string, VastuJsonValue>;
   "parking"?: Record<string, VastuJsonValue>;
   "staircase"?: Record<string, VastuJsonValue>;
@@ -1034,10 +1359,16 @@ export interface VastuPlanFromRequirementsRequest {
   "variantSvg"?: boolean;
   "includeSvg"?: boolean;
 }
-export interface VastuPlanGenerateRequest {
-  "plot": { "width"?: number; "length"?: number; "facing"?: string; "polygon"?: Array<Array<number>>; "setbacks"?: { "front"?: number; "rear"?: number; "left"?: number; "right"?: number; }; };
+export interface VastuPlanGenerateRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  plotPolygon?: Array<[number, number] | { x: number; y: number }>;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "plot": { "width"?: number; "length"?: number; "facing"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "setbacks"?: { "front"?: number; "rear"?: number; "left"?: number; "right"?: number; }; };
   "entrance"?: Record<string, VastuJsonValue>;
-  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "requirements"?: Record<string, VastuJsonValue>;
   "parking"?: Record<string, VastuJsonValue>;
   "staircase"?: Record<string, VastuJsonValue>;
@@ -1046,59 +1377,113 @@ export interface VastuPlanGenerateRequest {
   "variantSvg"?: boolean;
   "includeSvg"?: boolean;
 }
-export interface VastuPlanOptimizeRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuPlanOptimizeRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  plotPolygon?: Array<[number, number] | { x: number; y: number }>;
+  lockedRooms?: Array<string>;
+  wetShafts?: Array<Record<string, VastuJsonValue>>;
+  plumbingStacks?: Array<Record<string, VastuJsonValue>>;
+  loadBearingWalls?: Array<Record<string, VastuJsonValue>>;
+  columns?: Array<Record<string, VastuJsonValue>>;
+  minSizes?: Record<string, VastuJsonValue>;
+  constraints?: VastuOptimizationConstraints;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plot"?: Record<string, VastuJsonValue>;
   "includeSvg"?: boolean;
 }
-export interface VastuPlanReportRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuPlanReportRequest extends VastuUsageAttribution {
+  "rooms": Array<{ "name"?: string; "room"?: string; "roomType"?: string; "label"?: string; "zone"?: string; "direction"?: string; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "width"?: number; "height"?: number; "polygon"?: Array<VastuJsonValue>; "outline"?: Array<VastuJsonValue>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "area"?: number; "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plot"?: Record<string, VastuJsonValue>;
-  "format"?: 'json' | 'html';
+  "format"?: "json" | "html" | "pdf";
   "brand"?: { "reportTitle"?: string; "generatedFor"?: string; };
   "reportTitle"?: string;
   "generatedFor"?: string;
   "tenantName"?: string;
+  "composition"?: { "sections"?: Array<"summary" | "facing" | "plot-shape" | "compliance" | "rooms" | "zones" | "defects" | "remedies" | "elements" | "sources">; "intro"?: string | null; "outro"?: string | null; "ctaBlocks"?: Array<{ "label": string; "link": string; "phone"?: string | null; }>; };
+  "merchantCatalogId"?: string;
 }
-export interface VastuPlanUploadRequest {
-  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuPlanImportImageRequest extends VastuUsageAttribution {
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  fileBase64: string;
+  northBearingDeg?: number;
+  scaleMetersPerUnit?: number;
+  scaleInputUnitsPerUnit?: number;
+}
+export interface VastuPlanImportPdfRequest extends VastuPlanImportImageRequest { page: number; }
+export type VastuPlanImportImageResponse = VastuResponse<VastuPlanImportData>;
+export type VastuPlanImportPdfResponse = VastuResponse<VastuPlanImportData>;
+
+export interface VastuPlanUploadRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms"?: Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "holes"?: Array<Array<Array<number>>>; "multipolygons"?: Array<VastuPlanRegion>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "layout"?: Record<string, VastuJsonValue>;
   "asciiGrid"?: string;
   "plot"?: Record<string, VastuJsonValue>;
 }
-export interface VastuPlotExtensionsCutsRequest {
+export interface VastuPlotExtensionsCutsRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon"?: Array<Array<number>>;
   "length"?: number;
   "width"?: number;
 }
-export interface VastuPlotOrientationRequest {
+export interface VastuPlotOrientationRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "facingBearingDeg"?: number;
   "bearingDeg"?: number;
 }
-export interface VastuPlotRatioRequest {
+export interface VastuPlotRatioRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon": Array<Array<number>>;
   "bearingDeg"?: number;
   "doorXY"?: Array<number>;
 }
-export interface VastuPlotRoadOrientationRequest {
+export interface VastuPlotRoadOrientationRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "roads"?: Array<string>;
   "roadSides"?: Array<string>;
   "veedhiShoola"?: string;
   "tPointFrom"?: string;
   "roadThrustFrom"?: string;
 }
-export interface VastuPlotShapeRequest {
+export interface VastuPlotShapeRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "plotPolygon": Array<Array<number>>;
   "bearingDeg"?: number;
   "doorXY"?: Array<number>;
 }
-export interface VastuPlotSlopeRequest {
+export interface VastuPlotSlopeRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "slopeDirection"?: string;
   "lowSide"?: string;
   "lowCorner"?: string;
   "slopeBearingDeg"?: number;
 }
-export interface VastuRoomBedroomRequest {
+export interface VastuRoomBedroomRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1107,7 +1492,13 @@ export interface VastuRoomBedroomRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomDiningRequest {
+export interface VastuRoomDiningRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1116,7 +1507,13 @@ export interface VastuRoomDiningRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomKitchenRequest {
+export interface VastuRoomKitchenRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1125,7 +1522,13 @@ export interface VastuRoomKitchenRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomLivingRequest {
+export interface VastuRoomLivingRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1134,7 +1537,13 @@ export interface VastuRoomLivingRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomPoojaRequest {
+export interface VastuRoomPoojaRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1143,7 +1552,13 @@ export interface VastuRoomPoojaRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomStaircaseRequest {
+export interface VastuRoomStaircaseRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1152,7 +1567,13 @@ export interface VastuRoomStaircaseRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomStoreRequest {
+export interface VastuRoomStoreRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1161,7 +1582,13 @@ export interface VastuRoomStoreRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomStudyRequest {
+export interface VastuRoomStudyRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1170,7 +1597,13 @@ export interface VastuRoomStudyRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomToiletRequest {
+export interface VastuRoomToiletRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1179,7 +1612,13 @@ export interface VastuRoomToiletRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuRoomWaterStorageRequest {
+export interface VastuRoomWaterStorageRequest extends VastuUsageAttribution {
+  merchantCatalogId?: string;
+  pointXY?: Array<number>;
+  plotPolygon?: Array<Array<number>>;
+  bearingDeg?: number;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
   "zone"?: string;
   "direction"?: string;
   "proposedZone"?: string;
@@ -1188,68 +1627,94 @@ export interface VastuRoomWaterStorageRequest {
   "latitude"?: number;
   "longitude"?: number;
 }
-export interface VastuScoreComplianceIndexRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuScoreComplianceIndexRequest extends VastuUsageAttribution {
+  rulesVersion?: string;
+  receipt?: boolean;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plot"?: Record<string, VastuJsonValue>;
 }
-export interface VastuScoreOverallRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuScoreOverallRequest extends VastuUsageAttribution {
+  rulesVersion?: string;
+  receipt?: boolean;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plot"?: Record<string, VastuJsonValue>;
 }
-export interface VastuScoreZoneWiseRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuScoreZoneWiseRequest extends VastuUsageAttribution {
+  rulesVersion?: string;
+  receipt?: boolean;
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "plot"?: Record<string, VastuJsonValue>;
 }
-export interface VastuSpecializedCommercialRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedCommercialRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuSpecializedEducationalRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedEducationalRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuSpecializedFactoryRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedFactoryRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuSpecializedHospitalRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedHospitalRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuSpecializedResidentialRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedResidentialRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuSpecializedRestaurantRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedRestaurantRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuSpecializedTempleRequest {
-  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number; }>;
+export interface VastuSpecializedTempleRequest extends VastuUsageAttribution {
+  headingErrorDeg?: number;
+  positionErrorM?: number;
+  "rooms": Array<{ "name": string; "roomType"?: string; "zone"?: string; "direction"?: string; "polygon"?: Array<Array<number>>; "area"?: number;  "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
   "facing"?: string;
   "buildingFacing"?: string;
   "lat"?: number;
   "lon"?: number;
 }
-export interface VastuTimingBhumiPujanRequest {
+export interface VastuTimingBhumiPujanRequest extends VastuUsageAttribution {
   "latitude": number;
   "longitude": number;
   "datetime"?: string;
@@ -1258,7 +1723,7 @@ export interface VastuTimingBhumiPujanRequest {
   "timezone"?: string;
   "windowDays"?: number;
 }
-export interface VastuTimingConstructionStartRequest {
+export interface VastuTimingConstructionStartRequest extends VastuUsageAttribution {
   "latitude": number;
   "longitude": number;
   "datetime"?: string;
@@ -1267,7 +1732,7 @@ export interface VastuTimingConstructionStartRequest {
   "timezone"?: string;
   "windowDays"?: number;
 }
-export interface VastuTimingGrihapraveshRequest {
+export interface VastuTimingGrihapraveshRequest extends VastuUsageAttribution {
   "latitude": number;
   "longitude": number;
   "datetime"?: string;
@@ -1276,7 +1741,7 @@ export interface VastuTimingGrihapraveshRequest {
   "timezone"?: string;
   "windowDays"?: number;
 }
-export interface VastuTimingVastuShantiRequest {
+export interface VastuTimingVastuShantiRequest extends VastuUsageAttribution {
   "latitude": number;
   "longitude": number;
   "datetime"?: string;
@@ -1311,11 +1776,35 @@ export interface VastuArAnchorRecommendationsData {
   "physicalCoverageVerified": false;
   "coordinateNote": string;
   "omissionNote": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuArAttestationChallengeData {
+  "challenge": string | null;
+  "expiresAtEpoch": number | null;
+  "ttlSeconds": 300 | null;
+  "singleUse": true;
+  "deviceAttestation": { "status": "challenge_issued" | "not_configured"; "platform": "ios" | "android"; };
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuArCaptureMergeData {
+  "method": "capture-merge";
+  "frame": Record<string, VastuJsonValue>;
+  "rooms": Array<Record<string, VastuJsonValue>>;
+  "outlines": Array<Record<string, VastuJsonValue>>;
+  "registrations": Array<Record<string, VastuJsonValue>>;
+  "pairResiduals": Array<{ "controlCount"?: number; "rmsResidualM": number; "maxResidualM": number; "fromCaptureId": string; "toCaptureId": string; }>;
+  "unresolvedAlignmentErrors": Array<string>;
+  "floorStack": Array<Record<string, VastuJsonValue>>;
+  "toleranceM": number;
+  "alignmentMethod": string;
+  "pricing"?: { "attributableCostUsd": string; "markupMultiplier": 4; "computedPriceUsd": string; "settledChargeUsd": string; "settlement": string; };
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuArDeityIconsData {
   "icons": Array<{ "zone": "NW" | "N" | "NE" | "W" | "CENTER" | "E" | "SW" | "S" | "SE"; "deity": string; "deityClassification"?: "classical" | "convention"; "deitySource"?: string; "kind": "typographic-nameplate"; "png": VastuJsonValue; "svg": VastuJsonValue; "width": number; "height": number; }>;
   "verified": false;
   "provenance": VastuJsonValue;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuArHeatmapRasterData {
   "mask": number;
@@ -1333,12 +1822,13 @@ export interface VastuArHeatmapRasterData {
   "provenance": VastuJsonValue;
   "legend": { "disturbed": { "color": string; "meaning": string; }; "neutral": { "color": string; "meaning": string; }; "observed": string; };
   "computed": true;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuArRoomCaptureData {
   "method": "room-capture";
   "schema": "vedika.roomCapture/1";
-  "capture": { "captureId": string; "capturedAtEpoch": number; "device": Record<string, VastuJsonValue>; "north": Record<string, VastuJsonValue>; "floorIndex": number; "outline": { "polygon": Array<Array<number>>; "source": "traced"; "width": number; "length": number; "areaM2": number; }; "originShiftM": Array<number>; "roomCount": number; "openingCount": number; };
-  "rooms": Array<{ "id": string; "label": string | null; "roomType": string | null; "zone": "NW" | "N" | "NE" | "W" | "CENTER" | "E" | "SW" | "S" | "SE"; "zoneBasis": string; "areaM2": number; "centroid": Array<number>; "heightM": number | null; "openingCount": number; "polygon": Array<Array<number>>; }>;
+  "capture": { "captureId": string; "capturedAtEpoch": number; "device": Record<string, VastuJsonValue>; "north": Record<string, VastuJsonValue>; "floorIndex": number; "outline": { "polygon": Array<Array<number>>; "source": "traced"; "width": number; "length": number; "areaM2": number; "geometry"?: { "polygon"?: VastuJsonValue; "holes"?: Array<VastuJsonValue>; "multipolygons"?: Array<VastuJsonValue>; }; }; "originShiftM": Array<number>; "roomCount": number; "openingCount": number; "units"?: "m"; "inputUnits"?: "m" | "ft" | "mm" | "in" | "metres"; };
+  "rooms": Array<{ "id": string; "label": string | null; "roomType": string | null; "zone": "NW" | "N" | "NE" | "W" | "CENTER" | "E" | "SW" | "S" | "SE"; "zoneBasis": string; "areaM2": number; "centroid": Array<number>; "heightM": number | null; "openingCount": number; "polygon": Array<Array<number>>; "geometry"?: { "polygon"?: VastuJsonValue; "holes"?: Array<VastuJsonValue>; "multipolygons"?: Array<VastuJsonValue>; }; }>;
   "derivedRequests": { "planAnalyze": VastuJsonValue; "auditFloorPlanDetailed": VastuJsonValue; "scanQuality": VastuJsonValue; "anchorRecommendations": VastuJsonValue | null; };
   "planAnalysis": VastuJsonValue;
   "audit": VastuJsonValue;
@@ -1350,6 +1840,9 @@ export interface VastuArRoomCaptureData {
   "captureVerification": "unverified-caller-input";
   "attestation": "caller-reported";
   "note": string;
+  "deviceAttestation": VastuJsonValue;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuArScanQualityData {
   "grade": "A" | "B" | "C" | "D" | "F" | null;
@@ -1369,6 +1862,10 @@ export interface VastuArScanQualityData {
   "evidenceSource": "caller-reported";
   "sensorAttestation": false;
   "limitations": string;
+  "deviceAttestation"?: VastuJsonValue;
+  "deviceAttested"?: true;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuArTrueNorthData {
   "input": { "lat": number; "lon": number; "datetime": string; "deviceHeadingAtSunDeg": number; };
@@ -1382,6 +1879,7 @@ export interface VastuArTrueNorthData {
   "verified": boolean;
   "solarGeometryReliable": boolean;
   "headingQuality": { "accuracyDeg": number | null; "sampleAgeMs": number | null; "maxAccuracyDeg": 11.25; "maxSampleAgeMs": 4000; "reliable": boolean; "basis": string; };
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuArYantraMeshesData {
   "name": string;
@@ -1394,6 +1892,7 @@ export interface VastuArYantraMeshesData {
   "verified": false;
   "provenance": VastuJsonValue;
   "assetId": "nine-zone-mandala";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuArZoneTexturesData {
   "png": VastuJsonValue;
@@ -1406,12 +1905,68 @@ export interface VastuArZoneTexturesData {
   "pixelBoundsConvention": string;
   "gltfUvOrigin": string;
   "usdUvOrigin": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuArchiveDeleteData {
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "propertyId": string;
+  "deleted": boolean;
+  "exportDeleted": boolean;
+  "linkedScanIds": Array<string>;
+  "linkedAssessmentIds": Array<string>;
+  "erasureStatus"?: "pending" | "completed";
+  "erasureReceipt"?: { "schemaVersion": 1; "propertyId": string; "status": "completed"; "scope": "active-property-storage"; "completedAt": string; "removed": Array<{ "kind": string; "recordId"?: string; "artifactId"?: string; "artifactHash"?: string; "versionHash"?: string; "deleteMarker"?: boolean; "versionCount"?: number; "deleteMarkerCount"?: number; "versionsSha256"?: string; }>; "retained": Array<{ "kind": string; "purpose": string; }>; "backupRetentionDays": number; "backupPolicy": string; "hashAlgorithm": "SHA-256"; "receiptHash": string; "linkedScanIds"?: Array<string>; "linkedAssessmentIds"?: Array<string>; "deletedByAccountHash": string; "deletedAtEpoch": number; "revisionId"?: string; };
+  "retryAfterEpoch"?: number;
+  "revisionId"?: string;
+  "replayed"?: boolean;
+}
+export interface VastuArchiveExportData {
+  "propertyId": string;
+  "downloadUrl": string;
+  "expiresInSeconds": 3600;
+  "expiresAtEpoch": number;
+  "sizeBytes": number;
+  "linkedScanIds": Array<string>;
+  "linkedAssessmentIds": Array<string>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuArchiveSummaryData {
+  "propertyId": string;
+  "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null;
+  "linkedScanCount": number;
+  "linkedAssessmentCount": number;
+  "expiresAtEpoch": number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuArchiveTierData {
+  "propertyId": string;
+  "ownerId"?: string;
+  "ids"?: { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title"?: string;
+  "data"?: Record<string, VastuJsonValue>;
+  "retentionDays"?: number;
+  "expiresAtEpoch"?: number;
+  "linkedScanIds"?: Array<string>;
+  "linkedAssessmentIds"?: Array<string>;
+  "archiveTier"?: { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null;
+  "externalId"?: string | null;
+  "createdAtEpoch"?: number;
+  "updatedAtEpoch"?: number;
+  "contentHash"?: string;
+  "months"?: number;
+  "storedBytes"?: number;
+  "meterCents"?: number;
+  "actionCents"?: number;
+  "totalCents"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuAssessmentBatchData {
   "results": Array<{ "id": string; "status": number; "response": { "success": boolean; "data"?: { "system": "vastu"; "method": "listing-assessment"; "status": "assessed" | "insufficient_data"; "score"?: number; "confidence": number; "badgeEligibility": { "inputSource": "seller-supplied" | "plan-derived" | "measured"; "badge": "plan-derived" | "measured" | null; "eligible": boolean; "variant": "standard" | "low_confidence" | null; "confidence"?: number; "fullBadgeThreshold"?: number; "minimumConfidence"?: number; "reason": string; }; "findings"?: Array<Record<string, VastuJsonValue>>; "maxScore"?: number; "grade"?: string | null; "gradeLabel"?: string | null; "scoreBreakdown"?: Record<string, VastuJsonValue> | null; "confidenceBasis": Record<string, VastuJsonValue>; "entrance"?: Record<string, VastuJsonValue> | null; "scanQuality"?: Record<string, VastuJsonValue> | null; "zoneReference"?: Record<string, VastuJsonValue> | null; "sources"?: Array<{ "source": string; "scope": string; "verified": boolean; "classification": "classical" | "convention" | "computed"; "tradition"?: string; }>; "verified"?: boolean; "tradition"?: string; "reason"?: string; "requiredConfidence"?: number; "missingData"?: Array<string>; "reScanSuggestions"?: Array<string>; "charged"?: boolean; "meta": Record<string, VastuJsonValue>; "listingId"?: VastuJsonValue; }; "error"?: string; "code"?: string; "billing"?: { "charged": number; "currency": string; "balanceBefore": number; "balanceAfter": number; "endpoint": string; "category": string; }; "meta"?: { "source"?: string; "engine": "vedika-intelligence"; "version": string; "dataSource"?: "vedika-ephemeris"; }; }; }>;
   "summary": { "total": number; "succeeded": number; "failed": number; };
   "billingBasis": string;
   "execution": "synchronous";
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuAssessmentData {
   "system": "vastu";
@@ -1439,6 +1994,12 @@ export interface VastuAssessmentData {
   "charged"?: boolean;
   "meta": Record<string, VastuJsonValue>;
   "listingId"?: VastuJsonValue;
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "warnings"?: Array<Record<string, VastuJsonValue>>;
+  "zoneCheck"?: Record<string, VastuJsonValue>;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuAuspiciousFacingData {
   "purpose": string;
@@ -1454,6 +2015,7 @@ export interface VastuAuspiciousFacingData {
   "rationale"?: string;
   "system"?: string;
   "tradition"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuBearingZoneData {
   "bearingDeg": number;
@@ -1470,6 +2032,7 @@ export interface VastuBearingZoneData {
   "elementSource"?: string;
   "verseBackedRooms"?: Array<string>;
   "roomRulesClassification"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuBrahmasthanProjectionData {
   "centerPolygon": Array<Array<number>>;
@@ -1486,6 +2049,16 @@ export interface VastuBrahmasthanProjectionData {
   "forbiddenActionsClassification"?: string;
   "forbiddenActionsSource"?: string;
   "classicalSourceScope"?: string;
+  "centroidBasis"?: "plot-area-centroid";
+  "centerPolygonCentre"?: Array<number>;
+  "centreBasis"?: "bounding-box-centre";
+  "centreOffset"?: number;
+  "centreNote"?: string;
+  "gridFrame"?: { "orientation"?: "north-aligned"; "fittedTo"?: "plot-bounding-box"; "rotationDeg"?: number; "gridBoxArea"?: number; "plotAreaShareOfGridBox"?: number | null; "note"?: string; };
+  "inPlotArea"?: number;
+  "inPlotFraction"?: number;
+  "shareOfPlotArea"?: number | null;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuCatalogReferenceData {
   "defectCount"?: number;
@@ -1501,16 +2074,45 @@ export interface VastuCatalogReferenceData {
   "note"?: string;
   "meta"?: Record<string, VastuJsonValue>;
   "referenceVersion": string;
+  "zoneRemedies"?: Array<{ "zone"?: string; "remedy"?: string; "remedyKey"?: string; "remedyParams"?: Record<string, VastuJsonValue>; "classification"?: string; "source"?: string; }>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuChatUploadData {
+  "success": true;
+  "uploadId": string;
+  "pages": number;
+  "charsExtracted": number;
+  "expiresAt": string;
+  "digestSha256": string;
+  "pagesSkipped"?: number;
+  "textTruncated"?: boolean;
+  "replayed"?: boolean;
+  "billing"?: { "chargedCents"?: number; "balanceAfterCents"?: number | null; "currency"?: "USD"; };
+  "fileSha256": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuCompareVersionsData {
+  "inputHash": string;
+  "operation": string;
+  "fromVersion": string;
+  "toVersion": string;
+  "fromAssessment": Record<string, VastuJsonValue>;
+  "toAssessment": Record<string, VastuJsonValue>;
+  "changed": boolean;
+  "changes": Array<{ "ruleId": string; "before": VastuJsonValue; "after": VastuJsonValue; "reason": string; "fromReason": Record<string, VastuJsonValue> | null; "toReason": Record<string, VastuJsonValue> | null; }>;
+  "retainedVersions": 2;
+  "scope": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuComplianceIndexData {
-  "score": number;
-  "complianceIndex": string;
+  "score": number | null;
+  "complianceIndex": string | null;
   "drivingDefects": Array<{ "room"?: string; "zone"?: string; "severity"?: string; "weight"?: number; "pointsLost"?: number; "issue"?: string; "recommendedZone"?: string | null; "remedy"?: string | null; "remedyType"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; "source"?: string; "verified"?: boolean; "computed"?: boolean; "classification"?: string; "ruleProvenance"?: Record<string, VastuJsonValue>; "tradition"?: string; }>;
   "sources": Array<Record<string, VastuJsonValue>>;
   "verified": boolean;
   "basis"?: string;
   "defectsSummary"?: Record<string, VastuJsonValue>;
-  "indexLabel"?: string;
+  "indexLabel"?: string | null;
   "indexScale"?: Array<Record<string, VastuJsonValue>>;
   "indexScaleNote"?: string;
   "indexType"?: string;
@@ -1519,12 +2121,16 @@ export interface VastuComplianceIndexData {
   "method"?: string;
   "system"?: string;
   "tradition"?: string;
-  "verdict"?: string;
+  "verdict"?: string | null;
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuDetailedFloorPlanAuditData {
-  "score": number;
-  "grade": string;
+  "score": number | null;
+  "grade": string | null;
   "totalRooms": number;
   "prescribedCount": number;
   "defects": Array<{ "issueKey"?: string; "issueParams"?: { "roomType": string; "zone": string; "severity": string; }; "remedyKey"?: string | null; "remedyParams"?: Record<string, VastuJsonValue>; "room"?: string; "zone"?: string; "issue"?: string; "remedy"?: string; "severity"?: string; "classification"?: string; "recommendedZone"?: string | null; "source"?: string | null; "code"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; }>;
@@ -1539,23 +2145,31 @@ export interface VastuDetailedFloorPlanAuditData {
   "gradeScale"?: Record<string, VastuJsonValue>;
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
   "completeness": { "status": "partial" | "computed_from_supplied_input"; "computedComponents": Array<string>; "missingInputs": Array<string>; "projectedCellCount": number; "physicalCoverageVerified": false; "note": string; };
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuDirectionCorrectData {
   "input": Record<string, VastuJsonValue>;
   "magneticBearingDeg": number | null;
-  "declinationDeg": number;
+  "declinationDeg": number | null;
   "trueBearingDeg": number | null;
   "correctedZone": string;
   "sources": Array<string>;
   "verified": boolean;
   "correctedZoneIsMagnetic"?: boolean;
   "declinationCoverage"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuDirectionDeclinationData {
   "lat": number;
   "lon": number;
   "date": string;
-  "declinationDeg": number;
+  "declinationDeg": number | null;
   "interpretation": string;
   "gridEpoch": string;
   "sources": Array<string>;
@@ -1563,6 +2177,8 @@ export interface VastuDirectionDeclinationData {
   "computed": boolean;
   "classification": string;
   "declinationCoverage"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuDirections32ReferenceData {
   "system"?: string;
@@ -1578,6 +2194,8 @@ export interface VastuDirections32ReferenceData {
   "tradition"?: string;
   "meta"?: Record<string, VastuJsonValue>;
   "referenceVersion": string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuDirectionsReferenceData {
   "directionCount": number;
@@ -1591,6 +2209,26 @@ export interface VastuDirectionsReferenceData {
   "meta"?: Record<string, VastuJsonValue>;
   "tradition"?: string;
   "referenceVersion": string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuDrawingSheetData {
+  "html": string;
+  "svg": string;
+  "paperSize": "A3" | "A2";
+  "paperWidthMm": number;
+  "paperHeightMm": number;
+  "scaleDenominator": number;
+  "metresToPaperMm": number;
+  "planWidthMm": number;
+  "planHeightMm": number;
+  "trueNorthDeg": number;
+  "fieldEvidenceCount": number;
+  "contentType"?: string;
+  "pdfBase64"?: string;
+  "inputUnits": "m" | "ft" | "mm" | "in";
+  "units": "m";
+  "metresPerInputUnit": number;
 }
 export interface VastuElementBalanceData {
   "derivedFrom": string;
@@ -1602,6 +2240,7 @@ export interface VastuElementBalanceData {
   "method"?: string;
   "summary"?: string;
   "system"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuElementDistributionData {
   "elementDistribution": Array<Record<string, VastuJsonValue>>;
@@ -1615,6 +2254,7 @@ export interface VastuElementDistributionData {
   "system"?: string;
   "totalRooms"?: number;
   "weightingBasis"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuEntrancePadaData {
   "doorXY": Array<number>;
@@ -1625,10 +2265,14 @@ export interface VastuEntrancePadaData {
   "edgeRefined": boolean;
   "sources": Array<string>;
   "verified": boolean;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuEntranceRecommendData {
   "facing": Record<string, VastuJsonValue>;
   "bestEntrancePada": Record<string, VastuJsonValue>;
+  "bestEntranceIsUnfavourable"?: boolean;
+  "bestEntranceNote"?: string | null;
   "recommendedPadas": Array<Record<string, VastuJsonValue>>;
   "avoidPadas": Array<Record<string, VastuJsonValue>>;
   "facingCaution"?: Record<string, VastuJsonValue> | null;
@@ -1637,10 +2281,20 @@ export interface VastuEntranceRecommendData {
   "poojaPrescribedHere"?: Record<string, VastuJsonValue> | null;
   "prescribedRoomsAtFacing"?: Array<string>;
   "system"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuFeedListingsData {
+  "accepted": number;
+  "rejected": number;
+  "skipped": number;
+  "results": Array<Record<string, VastuJsonValue>>;
+  "dryRun"?: boolean;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuFloorPlanAuditData {
-  "score": number;
-  "grade": string;
+  "score": number | null;
+  "grade": string | null;
   "totalRooms": number;
   "prescribedCount": number;
   "defects": Array<{ "issueKey"?: string; "issueParams"?: { "roomType": string; "zone": string; "severity": string; }; "remedyKey"?: string | null; "remedyParams"?: Record<string, VastuJsonValue>; "room"?: string; "zone"?: string; "issue"?: string; "remedy"?: string; "severity"?: string; "classification"?: string; "recommendedZone"?: string | null; "source"?: string | null; "code"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; }>;
@@ -1651,6 +2305,12 @@ export interface VastuFloorPlanAuditData {
   "gradeScale"?: Record<string, VastuJsonValue>;
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
   "textParse"?: { "version": string; "transliterations": string; "grammar": string; "coverage": string; "supportedLanguages": Array<string>; "roomVocabulary": Array<string>; "directionVocabulary": Array<string>; "unparsedClauses": Array<string>; "parsedClauseCount": number; };
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuFloorRulesData {
   "masterBedroomFloor": number;
@@ -1663,12 +2323,13 @@ export interface VastuFloorRulesData {
   "principle"?: string;
   "system"?: string;
   "tradition"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuFusionChartData {
   "ascendant": Record<string, VastuJsonValue>;
   "grahaDirections": Array<Record<string, VastuJsonValue>>;
   "favourableDirections": Array<Record<string, VastuJsonValue>>;
-  "cautionDirections": Array<string>;
+  "cautionDirections": Array<{ "direction": string; "deity"?: string; "element"?: string; "ruledBy"?: string; "strengthPct"?: number; "rationale": string; "avoidUse"?: Array<string>; }>;
   "methodology": Record<string, VastuJsonValue>;
   "summary": string;
   "sources": Array<string>;
@@ -1677,6 +2338,40 @@ export interface VastuFusionChartData {
   "system"?: string;
   "tradition"?: string;
   "verified"?: boolean;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuJobResultsData {
+  "jobId": string;
+  "jobStatus": "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+  "results": Array<VastuJsonValue>;
+  "nextCursor": string | null;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuJobStatusData {
+  "jobId": string;
+  "status": "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+  "operation": "assessments" | "plan-analyze" | "plan-report";
+  "itemCount": number;
+  "counts": { "succeeded": number; "failed": number; "pending": number; "cancelled": number; };
+  "billing": { "currency": "USD"; "pricePerItem": number; "maxCharge": number; "charged": number; "basis": string; };
+  "cancelRequested": boolean;
+  "webhookId"?: string | null;
+  "createdAt": number;
+  "updatedAt": number;
+  "finishedAt"?: number | null;
+  "expiresAt": number;
+  "resultsUrl": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuJobSubmitData {
+  "jobId": string;
+  "status": "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
+  "itemCount": number;
+  "maxCharge": number;
+  "replayed": boolean;
+  "preview"?: Array<VastuJsonValue>;
+  "previewNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuLevelAnalysisData {
   "idealLevels": Array<Record<string, VastuJsonValue>>;
@@ -1690,11 +2385,14 @@ export interface VastuLevelAnalysisData {
   "principle"?: string;
   "system"?: string;
   "tradition"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuMainGateData {
   "facing": string;
   "padaScheme": string;
   "prescribedPadas": Array<number>;
+  "facingAffectsPrescribedPadas"?: boolean;
+  "facingNote"?: string;
   "rule": string;
   "remedy": string;
   "sources": Array<Record<string, VastuJsonValue>>;
@@ -1707,6 +2405,7 @@ export interface VastuMainGateData {
   "remedyType"?: string;
   "system"?: string;
   "verified"?: boolean;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuMandalaProjectionData {
   "cells": Array<Record<string, VastuJsonValue>>;
@@ -1717,6 +2416,9 @@ export interface VastuMandalaProjectionData {
   "bearingAssumedNorth"?: boolean;
   "classification"?: string;
   "computed"?: boolean;
+  "gridFrame"?: { "orientation"?: "north-aligned"; "fittedTo"?: "plot-bounding-box"; "rotationDeg"?: number; "gridBoxArea"?: number; "plotAreaShareOfGridBox"?: number | null; "note"?: string; };
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuMandalaReferenceData {
   "zoneCount"?: number;
@@ -1742,6 +2444,15 @@ export interface VastuMandalaReferenceData {
   "projected"?: boolean;
   "tradition"?: string;
   "referenceVersion": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuMeasurementUncertainty {
+  "pointResult": Record<string, VastuJsonValue>;
+  "results": Array<{ "id"?: VastuJsonValue; "pointResult": Record<string, VastuJsonValue>; "possibleZones": Array<string>; "possiblePadas": Array<Record<string, VastuJsonValue>>; "stable": boolean; "bearingMarginDeg": number | null; "headingErrorDeg"?: number; "positionErrorM"?: number; "method"?: string; }>;
+  "stable": boolean;
+  "bounds": { "headingErrorDeg": number; "positionErrorM": number; };
+  "coordinateUnits"?: "m";
+  "rulesChanged": false;
 }
 export interface VastuObstructionData {
   "input": Record<string, VastuJsonValue>;
@@ -1759,16 +2470,17 @@ export interface VastuObstructionData {
   "classification": string;
   "rangeClassification"?: string;
   "rangeSource"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuOverallScoreData {
-  "score": number;
-  "grade": string;
+  "score": number | null;
+  "grade": string | null;
   "placements": Array<{ "room"?: string; "zone"?: string; "severity"?: string; "weight"?: number; "merit"?: number; "demerit"?: number; "compliant"?: boolean; "recommendedZone"?: string | null; "issue"?: string; "remedy"?: string | null; "remedyType"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; "source"?: string; "verified"?: boolean; "computed"?: boolean; "classification"?: string; "ruleProvenance"?: Record<string, VastuJsonValue>; "tradition"?: string; }>;
   "sources": Array<Record<string, VastuJsonValue>>;
   "verified": boolean;
   "basis"?: string;
   "formula"?: string;
-  "gradeLabel"?: string;
+  "gradeLabel"?: string | null;
   "indexType"?: string;
   "input"?: Record<string, VastuJsonValue>;
   "maxScore"?: number;
@@ -1777,8 +2489,12 @@ export interface VastuOverallScoreData {
   "scoreBreakdown"?: Record<string, VastuJsonValue>;
   "system"?: string;
   "tradition"?: string;
-  "verdict"?: string;
+  "verdict"?: string | null;
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuPlacementData {
   "system": string;
@@ -1804,29 +2520,84 @@ export interface VastuPlacementData {
   "verified": boolean;
   "meta": Record<string, VastuJsonValue>;
   "tradition"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuPlanAuditData {
   "system": string;
   "method": string;
   "input": Record<string, VastuJsonValue>;
   "facing": Record<string, VastuJsonValue>;
-  "plotShape": Record<string, VastuJsonValue>;
-  "overallScore": number;
-  "grade": string;
+  "plotShape": Record<string, VastuJsonValue> | null;
+  "overallScore": number | null;
+  "grade": string | null;
   "summary": string;
   "zoneCompliance": Array<Record<string, VastuJsonValue>>;
-  "roomByRoom": Array<{ "room"?: string; "zone"?: string; "zoneSource"?: string; "ideal"?: string | null; "verdict"?: string; "severity"?: string; "defect"?: string | null; "remedy"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; "source"?: string; "verified"?: boolean; "computed"?: boolean; "classification"?: string; "ruleProvenance"?: Record<string, VastuJsonValue>; "tradition"?: string; }>;
-  "defects": Array<{ "room"?: string; "zone"?: string; "severity"?: string; "issue"?: string; "remedy"?: string; "source"?: string; "verified"?: boolean; "tradition"?: string; "remedyType"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; }>;
-  "remedies": Array<{ "priority"?: number; "room"?: string; "zone"?: string; "severity"?: string; "action"?: string; "source"?: string; "verified"?: boolean; "tradition"?: string; "remedyType"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; }>;
+  "roomByRoom": Array<{ "room"?: string; "zone"?: string; "zoneSource"?: string; "ideal"?: string | null; "verdict"?: string; "severity"?: string; "defect"?: string | null; "remedy"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; "source"?: string; "verified"?: boolean; "computed"?: boolean; "classification"?: string; "ruleProvenance"?: Record<string, VastuJsonValue>; "tradition"?: string; "statedZone"?: string; "zoneConflict"?: true; "mappedItems"?: Array<{ "remedyKey": string; "itemId": string; "kind": "sku" | "service"; "label": string; "availability": "in_stock" | "out_of_stock" | "on_request" | "unavailable"; "link"?: string | null; "referralRef"?: string | null; }>; }>;
+  "defects": Array<{ "room"?: string; "zone"?: string; "severity"?: string; "issue"?: string; "remedy"?: string; "source"?: string; "verified"?: boolean; "tradition"?: string; "remedyType"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; "mappedItems"?: Array<{ "remedyKey": string; "itemId": string; "kind": "sku" | "service"; "label": string; "availability": "in_stock" | "out_of_stock" | "on_request" | "unavailable"; "link"?: string | null; "referralRef"?: string | null; }>; }>;
+  "remedies": Array<{ "priority"?: number; "room"?: string; "zone"?: string; "severity"?: string; "action"?: string; "source"?: string; "verified"?: boolean; "tradition"?: string; "remedyType"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; "remedyKey"?: string | null; "remedyParams"?: Record<string, VastuJsonValue>; "mappedItems"?: Array<{ "remedyKey": string; "itemId": string; "kind": "sku" | "service"; "label": string; "availability": "in_stock" | "out_of_stock" | "on_request" | "unavailable"; "link"?: string | null; "referralRef"?: string | null; }>; }>;
   "elementBalance": Record<string, VastuJsonValue>;
   "sources": Array<string>;
   "provenance": Record<string, VastuJsonValue>;
   "meta": Record<string, VastuJsonValue>;
   "printReady"?: Record<string, VastuJsonValue>;
-  "tracedGeometry"?: Record<string, VastuJsonValue>;
-  "gradeLabel"?: string;
+  "tracedGeometry"?: { "region"?: { "geometry"?: { "polygon"?: VastuJsonValue; "holes"?: Array<VastuJsonValue>; "multipolygons"?: Array<VastuJsonValue>; }; "area"?: number; "centroid"?: Array<number>; "centroidInside"?: boolean; "brahmasthan"?: { "pole"?: Array<number>; "poleInside"?: boolean; "basis"?: string; "netArea"?: number; }; "gridZones"?: Array<{ "zone"?: string; "area"?: number; }>; "sectors"?: Array<{ "zone"?: string; "area"?: number; }>; }; };
+  "gradeLabel"?: string | null;
   "scoreDisclaimer"?: string;
-  "artifact"?: { "contentType": "text/html; charset=utf-8"; "filename": "vastu-report.html"; "content": string; };
+  "artifact"?: { "contentType": "text/html; charset=utf-8" | "application/pdf"; "filename": "vastu-report.html" | "vastu-report.pdf"; "content": string; "encoding"?: "base64"; };
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "warnings"?: Array<Record<string, VastuJsonValue>>;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
+  "units"?: string;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
+}
+export interface VastuPlanConvertUnitsData {
+  "plan": Record<string, VastuJsonValue>;
+  "inputUnits": "m" | "ft" | "mm" | "in";
+  "outputUnits": "m" | "ft" | "mm" | "in";
+  "scaleFactor": number;
+  "canonicalUnits": "m";
+  "pricing"?: Record<string, VastuJsonValue>;
+  "units"?: string;
+  "metresPerInputUnit"?: number;
+}
+export interface VastuPlanExportDxfData {
+  "dxf": string;
+  "contentType": string;
+  "fileName": string;
+  "version": string;
+  "unitsCode": number;
+  "trueNorthDeg": number;
+  "zones": number;
+  "roomCount": number;
+  "openingCount": number;
+  "dimensionCount": number;
+  "findingCount": number;
+  "needsReview": boolean;
+  "pricing"?: Record<string, VastuJsonValue>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "units"?: string;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
+}
+export interface VastuPlanExportIfcData {
+  "ifc": string;
+  "schema": "IFC4";
+  "contentType": string;
+  "fileName": string;
+  "outputUnits": "m" | "ft" | "mm" | "in";
+  "units"?: "m";
+  "roomCount": number;
+  "pricing"?: Record<string, VastuJsonValue>;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
+  "canonicalUnits": "m";
 }
 export interface VastuPlanGenerateData {
   "plot": Record<string, VastuJsonValue>;
@@ -1854,6 +2625,55 @@ export interface VastuPlanGenerateData {
   "core"?: Record<string, VastuJsonValue>;
   "verticalChecks"?: Array<Record<string, VastuJsonValue>>;
   "floorNote"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "units"?: string;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
+  "plotRegion"?: { "geometry"?: { "polygon"?: VastuJsonValue; "holes"?: Array<VastuJsonValue>; "multipolygons"?: Array<VastuJsonValue>; }; "area"?: number; "centroid"?: Array<number>; "centroidInside"?: boolean; "brahmasthan"?: { "pole"?: Array<number>; "poleInside"?: boolean; "basis"?: string; "netArea"?: number; }; "gridZones"?: Array<{ "zone"?: string; "area"?: number; }>; "sectors"?: Array<{ "zone"?: string; "area"?: number; }>; };
+}
+export interface VastuPlanImportData {
+  "plan": { "plot": { "polygon": Array<Array<number>>; "width": number | null; "length": number | null; }; "rooms": Array<{ "id": string; "name": string; "roomType": string; "label": string; "polygon": Array<Array<number>>; }>; "openings": Array<{ "start": Array<number>; "end": Array<number>; "kind": "door" | "window" | "opening"; }>; "entrance": { "start": Array<number>; "end": Array<number>; "kind": "door" | "window" | "opening"; } | null; "importReview": { "northKnown": boolean; "scaleKnown": boolean; "analysisReady": boolean; "coordinateFrame": "north-up" | "drawing-up"; "units": "m" | "drawing-units"; }; "units"?: "m" | "drawing-units"; };
+  "north": { "bearingDeg": number | null; "confidence": number; "source": string; };
+  "scale": { "metersPerUnit": number | null; "source": string; };
+  "dimensions": Array<{ "text": string; "start": Array<number>; "end": Array<number>; "confidence": number; }>;
+  "confidence": Record<string, VastuJsonValue>;
+  "needsReview": Array<{ "field": string; "reason": string; }>;
+  "analysisReady": boolean;
+  "source": { "method": "vector" | "ocr" | "vision"; "document": { "page": number; "pageCount": number; } | null; };
+  "usage": { "inputTokens": number; "outputTokens": number; "computeMicros": number; "cpuMicros": number; "deliveryBytes": number; };
+  "pricing": { "currency": "USD"; "attributableCost": string; "modelCost": string; "computeCost": string; "markup": 4; "price": string; "unit": "image" | "selected-page"; "walletRounding": string; "computedPrice": string; "deliveryCost": string; };
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "units"?: "m" | "drawing-units";
+  "inputUnits"?: "m" | "ft" | "mm" | "in";
+  "metresPerInputUnit"?: number;
+}
+export interface VastuPlanImportDxfData {
+  "plan": { "plot": { "width": number; "length": number; "polygon"?: Array<Array<number>>; "units"?: string; }; "rooms": Array<{ "id": string; "name": string; "polygon": Array<Array<number>>; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "area"?: number; "centre"?: Array<number>; "holes"?: Array<Array<Array<number>>>; "source"?: Record<string, VastuJsonValue>; "labelEntityId"?: string; }>; "openings"?: { "doors"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; }>; "windows"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; }>; "units"?: string; }; "trueNorthDeg": number; "orientationDeg"?: number; "units": string; "cadMetadata"?: Record<string, VastuJsonValue>; };
+  "mappingReport": Array<{ "entityId": string; "handle"?: string | null; "stepId"?: number; "entityType": string; "layer"?: string; "role"?: string; "status": string; "planIds"?: Array<string>; "reason"?: string | null; "parentId"?: string; }>;
+  "needsReview": boolean;
+  "reviewReasons": Array<{ "id"?: string; "reason": string; }>;
+  "pricing"?: Record<string, VastuJsonValue>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "units"?: string;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
+}
+export interface VastuPlanImportIfcData {
+  "schema": string;
+  "buildings": Array<{ "id": string; "name": string; }>;
+  "storeys": Array<{ "id": string; "name": string; "buildingId": string | null; "elevationMetres": number | null; "plan": { "plot": { "width": number; "length": number; "polygon"?: Array<Array<number>>; "units"?: string; }; "rooms": Array<{ "id": string; "name": string; "polygon": Array<Array<number>>; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "area"?: number; "centre"?: Array<number>; "holes"?: Array<Array<Array<number>>>; "source"?: Record<string, VastuJsonValue>; }>; "openings"?: { "doors"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; "name"?: string; "openingHeight"?: number | null; }>; "windows"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; "name"?: string; "openingHeight"?: number | null; }>; "units"?: string; }; "trueNorthDeg": number; "orientationDeg"?: number; "units": string; "cadMetadata"?: Record<string, VastuJsonValue>; }; }>;
+  "trueNorthDeg": number;
+  "mappingReport": Array<{ "entityId": string; "handle"?: string | null; "stepId"?: number; "entityType": string; "layer"?: string; "role"?: string; "status": string; "planIds"?: Array<string>; "reason"?: string | null; "storeyId"?: string | null; }>;
+  "needsReview": boolean;
+  "reviewReasons": Array<{ "id"?: string; "reason": string; }>;
+  "pricing"?: Record<string, VastuJsonValue>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "units"?: string;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
 }
 export interface VastuPlanOptimizeData {
   "before": Record<string, VastuJsonValue>;
@@ -1871,12 +2691,25 @@ export interface VastuPlanOptimizeData {
   "sources"?: Array<Record<string, VastuJsonValue>>;
   "system"?: string;
   "verified"?: boolean;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "unmetConstraints"?: Array<Record<string, VastuJsonValue>>;
+  "initialConstraintViolations"?: Array<Record<string, VastuJsonValue>>;
+  "feasible"?: boolean;
+  "search"?: Record<string, VastuJsonValue>;
+  "scoring"?: Record<string, VastuJsonValue>;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "units"?: string;
+  "inputUnits"?: string;
+  "metresPerInputUnit"?: number;
+  "plotRegion"?: { "geometry"?: { "polygon"?: VastuJsonValue; "holes"?: Array<VastuJsonValue>; "multipolygons"?: Array<VastuJsonValue>; }; "area"?: number; "centroid"?: Array<number>; "centroidInside"?: boolean; "brahmasthan"?: { "pole"?: Array<number>; "poleInside"?: boolean; "basis"?: string; "netArea"?: number; }; "gridZones"?: Array<{ "zone"?: string; "area"?: number; }>; "sectors"?: Array<{ "zone"?: string; "area"?: number; }>; };
 }
 export interface VastuPlotExtensionsCutsData {
   "directions": Array<Record<string, VastuJsonValue>>;
   "extensions": Array<string>;
-  "cuts": Array<Record<string, VastuJsonValue>>;
-  "severeCuts": Array<Record<string, VastuJsonValue>>;
+  "cuts": Array<string>;
+  "severeCuts": Array<string>;
   "sources": Array<string>;
   "verified": boolean;
   "actualPlotArea"?: number;
@@ -1889,6 +2722,24 @@ export interface VastuPlotExtensionsCutsData {
   "summary"?: string;
   "system"?: string;
   "verdict"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuPlotFromSurveyData {
+  "method": "plot-from-survey";
+  "sourceCrs": string;
+  "sourceUnits": string;
+  "coordinateOrder": string;
+  "frame": Record<string, VastuJsonValue>;
+  "plotPolygon": Array<Array<number>>;
+  "controlPoints": Array<Record<string, VastuJsonValue>>;
+  "areaM2": number;
+  "gridConvergenceDeg": number;
+  "boundaryGridConvergenceDeg": Array<number>;
+  "trueNorthGridBearingDeg": number;
+  "maxDistanceFromOriginM": number;
+  "pricing"?: { "attributableCostUsd": string; "markupMultiplier": 4; "computedPriceUsd": string; "settledChargeUsd": string; "settlement": string; };
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuPlotOrientationData {
   "facing": string;
@@ -1906,6 +2757,8 @@ export interface VastuPlotOrientationData {
   "note"?: string;
   "provenance"?: Record<string, VastuJsonValue>;
   "system"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuPlotRatioData {
   "length": number;
@@ -1922,6 +2775,11 @@ export interface VastuPlotRatioData {
   "sources": Array<string>;
   "verified": boolean;
   "boundingFrame": "longest-edge-aligned";
+  "rectangular"?: false;
+  "fillRatio"?: number;
+  "ratioScope"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuPlotShapeData {
   "shape": string;
@@ -1935,6 +2793,8 @@ export interface VastuPlotShapeData {
   "sources": Array<string>;
   "verified": boolean;
   "boundingFrame": "longest-edge-aligned";
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuPlotSlopeData {
   "downSlopeDirection": string;
@@ -1954,13 +2814,206 @@ export interface VastuPlotSlopeData {
   "provenance"?: Record<string, VastuJsonValue>;
   "remedyType"?: string | null;
   "system"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuPortfolioAnalyticsData {
+  "fromEpoch": number;
+  "toEpoch": number;
+  "account": { "counts": { "propertiesCreated": number; "propertiesAssessed": number; "reportsDelivered": number; "returningProperties": number; }; "daily": Array<{ "date": string; "counts": { "propertiesCreated": number; "propertiesAssessed": number; "reportsDelivered": number; "returningProperties": number; }; }>; "returningDefinition": string; "deliveryDefinition": string; "coverage": string; };
+  "byTag": Record<string, VastuJsonValue>;
+}
+export interface VastuPortfolioBudgetsGetData {
+  "dimensions": Record<string, VastuJsonValue>;
+  "period": "lifetime";
+}
+export interface VastuPortfolioBudgetsSetData {
+  "scope": { "propertyId"?: string; "tenantRef"?: string; };
+  "capUsd": string | null;
+  "period": "lifetime";
+}
+export interface VastuPortfolioCompareData {
+  "properties": Array<{ "propertyId": string; "title": string; "city": string; "tags": Array<string>; "createdAtEpoch": number; "assessment": { "score"?: number; "grade"?: string; "inputSource"?: string; "ruleset"?: string; "zoneDefects"?: Array<string>; "kind"?: "assessed" | "reportDelivered" | "computed"; } | null; "assessedAtEpoch": number | null; }>;
+  "comparableGroups": Record<string, VastuJsonValue>;
+  "crossRulesetRanking": false;
+}
+export interface VastuPortfolioSearchData {
+  "properties": Array<{ "propertyId": string; "title": string; "city": string; "tags": Array<string>; "createdAtEpoch": number; "assessment": { "score"?: number; "grade"?: string; "inputSource"?: string; "ruleset"?: string; "zoneDefects"?: Array<string>; "kind"?: "assessed" | "reportDelivered" | "computed"; } | null; "assessedAtEpoch": number | null; }>;
+  "total": number;
+  "nextCursor": string | null;
+}
+export interface VastuPortfolioUsageData {
+  "fromEpoch": number;
+  "toEpoch": number;
+  "retentionDays": number;
+  "groups": Array<{ "propertyId": string | null; "tenantRef": string | null; "calls": number; "chargedUsd": string; "pending": number; }>;
+}
+export interface VastuPortfolioUsageExportData {
+  "csv": string;
+  "filename": string;
+  "contentType": string;
+}
+export interface VastuPropertiesActivityExportData {
+  "events": Array<{ "sequence": number; "actorId": string; "propertyId": string; "revision": string; "contentHash": string; "action": string; "at": number; "previousHash": string; "hash": string; "details": Record<string, VastuJsonValue>; }>;
+  "nextCursor": number | null;
+  "format": "jsonl";
+  "content": string;
+}
+export interface VastuPropertiesActivityListData {
+  "events": Array<{ "sequence": number; "actorId": string; "propertyId": string; "revision": string; "contentHash": string; "action": string; "at": number; "previousHash": string; "hash": string; "details": Record<string, VastuJsonValue>; }>;
+  "nextCursor": number | null;
+}
+export interface VastuPropertiesCollaborationCommentData {
+  "comment": { "id": string; "actorId": string; "assessmentId": string; "revision": string; "contentHash": string; "at": number; "text": string; };
+}
+export interface VastuPropertiesCollaborationGetData {
+  "property": { "propertyId": string; "ownerId": string; "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; }; "title": string; "data": Record<string, VastuJsonValue>; "retentionDays": number; "expiresAtEpoch": number; "linkedScanIds": Array<string>; "linkedAssessmentIds": Array<string>; "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null; "externalId": string | null; "createdAtEpoch": number; "updatedAtEpoch": number; "contentHash": string; };
+  "comments": Array<{ "id": string; "actorId": string; "assessmentId": string; "revision": string; "contentHash": string; "at": number; "text": string; }>;
+  "reviews": Array<{ "actorId": string; "assessmentId": string; "revision": string; "contentHash": string; "at": number; "decision": "approved" | "rejected"; }>;
+}
+export interface VastuPropertiesCollaborationInviteData {
+  "invitationId": string;
+  "status": "pending" | "accepted";
+}
+export interface VastuPropertiesCollaborationMembersData {
+  "members": Record<string, VastuJsonValue>;
+}
+export interface VastuPropertiesCollaborationReviewData {
+  "review": { "actorId": string; "assessmentId": string; "revision": string; "contentHash": string; "at": number; "decision": "approved" | "rejected"; };
+}
+export interface VastuPropertiesCollaborationRevokeData {
+  "accountId"?: string;
+  "revoked": boolean;
+  "invitationId"?: string;
+}
+export interface VastuPropertiesCollaborationUpdateData {
+  "property": { "propertyId": string; "ownerId": string; "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; }; "title": string; "data": Record<string, VastuJsonValue>; "retentionDays": number; "expiresAtEpoch": number; "linkedScanIds": Array<string>; "linkedAssessmentIds": Array<string>; "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null; "externalId": string | null; "createdAtEpoch": number; "updatedAtEpoch": number; "contentHash": string; };
+}
+export interface VastuPropertiesCreateData {
+  "propertyId": string;
+  "ownerId": string;
+  "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title": string;
+  "data": Record<string, VastuJsonValue>;
+  "retentionDays": number;
+  "expiresAtEpoch": number;
+  "linkedScanIds": Array<string>;
+  "linkedAssessmentIds": Array<string>;
+  "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null;
+  "externalId": string | null;
+  "createdAtEpoch": number;
+  "updatedAtEpoch": number;
+  "contentHash": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuPropertiesDeleteData {
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "propertyId": string;
+  "deleted": boolean;
+  "erasureStatus"?: "pending" | "completed";
+  "erasureReceipt"?: { "schemaVersion": 1; "propertyId": string; "status": "completed"; "scope": "active-property-storage"; "completedAt": string; "removed": Array<{ "kind": string; "recordId"?: string; "artifactId"?: string; "artifactHash"?: string; "versionHash"?: string; "deleteMarker"?: boolean; "versionCount"?: number; "deleteMarkerCount"?: number; "versionsSha256"?: string; }>; "retained": Array<{ "kind": string; "purpose": string; }>; "backupRetentionDays": number; "backupPolicy": string; "hashAlgorithm": "SHA-256"; "receiptHash": string; "linkedScanIds"?: Array<string>; "linkedAssessmentIds"?: Array<string>; "deletedByAccountHash": string; "deletedAtEpoch": number; "revisionId"?: string; };
+  "retryAfterEpoch"?: number;
+  "exportDeleted"?: boolean;
+  "linkedScanIds"?: Array<string>;
+  "linkedAssessmentIds"?: Array<string>;
+  "revisionId"?: string;
+  "replayed"?: boolean;
+}
+export interface VastuPropertiesGetData {
+  "propertyId": string;
+  "ownerId": string;
+  "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title": string;
+  "data": Record<string, VastuJsonValue>;
+  "retentionDays": number;
+  "expiresAtEpoch": number;
+  "linkedScanIds": Array<string>;
+  "linkedAssessmentIds": Array<string>;
+  "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null;
+  "externalId": string | null;
+  "createdAtEpoch": number;
+  "updatedAtEpoch": number;
+  "contentHash": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuPropertiesLinkScanData {
+  "propertyId": string;
+  "ownerId": string;
+  "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title": string;
+  "data": Record<string, VastuJsonValue>;
+  "retentionDays": number;
+  "expiresAtEpoch": number;
+  "linkedScanIds": Array<string>;
+  "linkedAssessmentIds": Array<string>;
+  "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null;
+  "externalId": string | null;
+  "createdAtEpoch": number;
+  "updatedAtEpoch": number;
+  "contentHash": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuPropertiesListData {
+  "properties": Array<{ "propertyId": string; "ownerId": string; "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; }; "title": string; "data": Record<string, VastuJsonValue>; "retentionDays": number; "expiresAtEpoch": number; "linkedScanIds": Array<string>; "linkedAssessmentIds": Array<string>; "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null; "externalId": string | null; "createdAtEpoch": number; "updatedAtEpoch": number; "contentHash": string; }>;
+  "nextCursor": string | null;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuPropertiesUpdateData {
+  "propertyId": string;
+  "ownerId": string;
+  "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title": string;
+  "data": Record<string, VastuJsonValue>;
+  "retentionDays": number;
+  "expiresAtEpoch": number;
+  "linkedScanIds": Array<string>;
+  "linkedAssessmentIds": Array<string>;
+  "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null;
+  "externalId": string | null;
+  "createdAtEpoch": number;
+  "updatedAtEpoch": number;
+  "contentHash": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuQuoteCalculateData {
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "workflowId": string;
+  "currency": "USD";
+  "subtotal": string;
+  "total": string;
+  "lineItems": Array<{ "slug"?: string; "label"?: string; "quantity"?: number; "baseCostUsd"?: string; "totalPriceUsd"?: string; "category"?: string; }>;
+  "explanation": string;
+}
+export interface VastuReceiptVerifyData {
+  "valid": true;
+  "receipt": { "assessmentId": string; "inputHash": string; "resultHash": string; "rulesVersion": string; "score": number; "grade": string | null; "sourceLabels": Array<string>; "timestamp": number; };
+  "inputMatched": boolean | null;
+  "charged": 0;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuRemediationTaskData {
+  "taskId": string;
+  "reportRef": string;
+  "findingRef": string;
+  "remedyKey": string;
+  "title": string;
+  "status": "pending" | "in_progress" | "completed" | "cancelled";
+  "assignee"?: string | null;
+  "dueDate"?: string | null;
+  "evidence"?: Array<{ "reference": string; "photoRef"?: string | null; "note"?: string | null; }>;
+  "createdAt"?: number;
+  "updatedAt"?: number;
+  "completedAt"?: number | null;
+  "reassessment"?: Record<string, VastuJsonValue>;
+  "reassessmentLink"?: { "operation": string; "method": "POST"; "request": { "propertyId": string; }; "resultPointer": string; "propertyId": string; "taskId": string; "assessmentId": string; };
+  "history"?: Array<Record<string, VastuJsonValue>>;
 }
 export interface VastuRemedyComparisonData {
-  "before": { "score"?: number; "grade"?: string; "defectCount"?: number; "prescribedCount"?: number; "defects"?: Array<{ "room"?: string; "zone"?: string; "issue"?: string; "severity"?: string; "remedy"?: string; "recommendedZone"?: string | null; "source"?: string; "classification"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; }>; };
-  "after": { "score"?: number; "grade"?: string; "defectCount"?: number; "prescribedCount"?: number; "defects"?: Array<{ "room"?: string; "zone"?: string; "issue"?: string; "severity"?: string; "remedy"?: string; "recommendedZone"?: string | null; "source"?: string; "classification"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; }>; };
-  "scoreDelta": number;
+  "before": { "score"?: number | null; "grade"?: string | null; "defectCount"?: number; "prescribedCount"?: number; "defects"?: Array<{ "room"?: string; "zone"?: string; "issue"?: string; "severity"?: string; "remedy"?: string; "recommendedZone"?: string | null; "source"?: string; "classification"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; }>; };
+  "after": { "score"?: number | null; "grade"?: string | null; "defectCount"?: number; "prescribedCount"?: number; "defects"?: Array<{ "room"?: string; "zone"?: string; "issue"?: string; "severity"?: string; "remedy"?: string; "recommendedZone"?: string | null; "source"?: string; "classification"?: string; "remedyClassification"?: string | null; "remedySource"?: string | null; }>; };
+  "scoreDelta": number | null;
   "scoring": Record<string, VastuJsonValue>;
-  "verdict": string;
+  "verdict": string | null;
   "remediesApplied": Array<Record<string, VastuJsonValue>>;
   "roomChanges": Array<Record<string, VastuJsonValue>>;
   "sources": Array<string>;
@@ -1969,6 +3022,8 @@ export interface VastuRemedyComparisonData {
   "system"?: string;
   "tradition"?: string;
   "verified"?: boolean;
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuRoadOrientationData {
   "roadAnalysis": Array<Record<string, VastuJsonValue>>;
@@ -1986,6 +3041,7 @@ export interface VastuRoadOrientationData {
   "summary"?: string;
   "system"?: string;
   "verdict"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuRoomData {
   "system": string;
@@ -2007,6 +3063,21 @@ export interface VastuRoomData {
   "storageType"?: string;
   "placementVerified"?: boolean;
   "guidanceClassification"?: string | null;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "roomTypeApplied"?: "master_bedroom" | "bedroom" | "guest" | "children";
+  "roomTypeDefaulted"?: boolean;
+  "roomTypeNote"?: string;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuRuleVersionsData {
+  "currentVersion": string;
+  "retainedVersions": number;
+  "versions": Array<string>;
+  "scope": string;
+  "scoringVersion": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuScanStoredData {
   "schemaVersion": 1;
@@ -2017,6 +3088,7 @@ export interface VastuScanStoredData {
   "captureVerification": "unverified-caller-input";
   "geometryUnits": "metres";
   "assessmentNote": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuScansDeleteData {
   "scanId": string;
@@ -2024,6 +3096,7 @@ export interface VastuScansDeleteData {
   "deletionScope": string;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuScansListData {
   "scans": Array<VastuJsonValue>;
@@ -2031,11 +3104,13 @@ export interface VastuScansListData {
   "paginationNote"?: string;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuScansRetrieveData {
   "scan": VastuJsonValue;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuScansSaveData {
   "scan": VastuJsonValue;
@@ -2043,6 +3118,8 @@ export interface VastuScansSaveData {
   "retentionNote"?: string;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
+  "deviceAttestation"?: VastuJsonValue;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuScansTimelapseData {
   "propertyId": string;
@@ -2051,6 +3128,7 @@ export interface VastuScansTimelapseData {
   "physicalChangeVerified": false;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuSingleRoomAuditData {
   "input": Record<string, VastuJsonValue>;
@@ -2066,13 +3144,16 @@ export interface VastuSingleRoomAuditData {
   "remedyParams"?: Record<string, VastuJsonValue>;
   "remedyClassification"?: string | null;
   "remedySource"?: string | null;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuSpecializedAuditData {
   "system": string;
   "method": string;
   "buildingType": string;
-  "score": number;
-  "grade": string;
+  "score": number | null;
+  "grade": string | null;
   "scoringBasis": string;
   "auditedRooms": number;
   "idealCount": number;
@@ -2085,20 +3166,30 @@ export interface VastuSpecializedAuditData {
   "provenance": Record<string, VastuJsonValue>;
   "meta": Record<string, VastuJsonValue>;
   "buildingDirection"?: Record<string, VastuJsonValue>;
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "uncertainty"?: VastuMeasurementUncertainty;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuSunPathData {
   "input": { "lat": number; "lon": number; "date": string; };
-  "sunriseUtc": string;
-  "sunriseAzimuthDeg": number;
-  "solarNoonUtc": string;
-  "solarNoonAzimuthDeg": number;
-  "solarNoonElevationDeg": number;
-  "sunsetUtc": string;
-  "sunsetAzimuthDeg": number;
-  "declinationDeg": number;
+  "sunriseUtc"?: string;
+  "sunriseAzimuthDeg"?: number;
+  "solarNoonUtc"?: string;
+  "solarNoonAzimuthDeg"?: number;
+  "solarNoonElevationDeg"?: number;
+  "sunsetUtc"?: string;
+  "sunsetAzimuthDeg"?: number;
+  "declinationDeg"?: number;
   "arc": Array<Record<string, VastuJsonValue>>;
   "sources": Array<string>;
   "verified": boolean;
+  "dayStatus"?: "normal" | "polarDay" | "polarNight";
+  "note"?: string;
+  "noonUtc"?: string;
+  "noonElevationDeg"?: number;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuTimingData {
   "system": string;
@@ -2110,6 +3201,7 @@ export interface VastuTimingData {
   "meta": Record<string, VastuJsonValue>;
   "guidance": Record<string, VastuJsonValue>;
   "foundationRite"?: Record<string, VastuJsonValue>;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuWallAnalysisData {
   "idealWalls": Array<Record<string, VastuJsonValue>>;
@@ -2123,6 +3215,36 @@ export interface VastuWallAnalysisData {
   "principle"?: string;
   "system"?: string;
   "tradition"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+}
+export interface VastuWorkflowData {
+  "revision": number;
+  "mutationId"?: string;
+  "contentHash"?: string;
+  "expiresAt"?: number;
+  "updatedAt"?: number;
+  "deleted"?: boolean;
+  "data"?: { "propertyId"?: string; "catalogId"?: string; "tasks"?: Record<string, VastuRemediationTaskData>; "items"?: Array<{ "remedyKey": string; "itemId": string; "kind": "sku" | "service"; "label": string; "availability": "in_stock" | "out_of_stock" | "on_request" | "unavailable"; "link"?: string | null; "referralRef"?: string | null; }>; };
+  "remedies"?: Array<{ "remedyKey"?: string; "remedy"?: string; "classification"?: string; "source"?: string; "mappedItems"?: Array<{ "remedyKey": string; "itemId": string; "kind": "sku" | "service"; "label": string; "availability": "in_stock" | "out_of_stock" | "on_request" | "unavailable"; "link"?: string | null; "referralRef"?: string | null; }>; }>;
+  "merchantCatalogId"?: string;
+  "merchantCatalogRevision"?: number;
+}
+export interface VastuWorkspaceData {
+  "record"?: Record<string, VastuJsonValue>;
+  "replayed"?: boolean;
+  "records"?: Array<Record<string, VastuJsonValue>>;
+  "id"?: string;
+  "title"?: string;
+  "expiresAt"?: number;
+  "reset"?: boolean;
+  "deletedRecords"?: number;
+  "payload"?: string;
+  "headers"?: Record<string, VastuJsonValue>;
+  "deliveryMode"?: string;
+  "retentionDays"?: number;
+  "maxRecords"?: number;
+  "html"?: string;
+  "svg"?: string;
 }
 export interface VastuZoneReferenceData {
   "system"?: string;
@@ -2134,6 +3256,7 @@ export interface VastuZoneReferenceData {
   "tradition"?: string;
   "meta"?: Record<string, VastuJsonValue>;
   "referenceVersion": string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
 }
 export interface VastuZoneWiseScoreData {
   "zones": Array<{ "zone"?: string; "zoneWeight"?: number; "zoneImportance"?: string; "score"?: number; "grade"?: string; "worstSeverity"?: string; "rooms"?: Array<{ "room"?: string; "severity"?: string; "compliant"?: boolean; "issue"?: string; "remedy"?: string | null; "remedyType"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; "recommendedZone"?: string | null; }>; "source"?: string; "verified"?: boolean; "tradition"?: string; }>;
@@ -2144,14 +3267,18 @@ export interface VastuZoneWiseScoreData {
   "input"?: Record<string, VastuJsonValue>;
   "meta"?: Record<string, VastuJsonValue>;
   "method"?: string;
-  "overallGrade": string;
-  "overallScore": number;
-  "strongestZone"?: string;
+  "overallGrade": string | null;
+  "overallScore": number | null;
+  "strongestZone"?: string | null;
   "system"?: string;
   "tradition"?: string;
-  "weakestZone"?: string;
+  "weakestZone"?: string | null;
   "zoneWeightingNote"?: string;
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
+  "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
+  "scoreNote"?: string;
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export type VastuArScanQualityResponse = VastuResponse<VastuArScanQualityData>;
 export type VastuArTrueNorthCalibrateResponse = VastuResponse<VastuArTrueNorthData>;
@@ -2247,16 +3374,421 @@ export type VastuArRoomCaptureResponse = VastuResponse<VastuArRoomCaptureData>;
 export interface VastuScansSaveResponse { success: true; data: VastuScansSaveData; billing?: VastuResponseBilling | null; meta?: VastuResponseMeta }
 export interface VastuScansRetrieveResponse { success: true; data: VastuScansRetrieveData; billing?: VastuResponseBilling | null; meta?: VastuResponseMeta }
 export interface VastuScansListResponse { success: true; data: VastuScansListData; billing?: VastuResponseBilling | null; meta?: VastuResponseMeta }
+export interface VastuArAttestationChallengeResponse { success: true; data: VastuArAttestationChallengeData; billing?: VastuResponseBilling | null; meta?: VastuResponseMeta }
 export interface VastuScansDeleteResponse { success: true; data: VastuScansDeleteData; billing?: VastuResponseBilling | null; meta?: VastuResponseMeta }
 export interface VastuScansTimelapseResponse { success: true; data: VastuScansTimelapseData; billing?: VastuResponseBilling | null; meta?: VastuResponseMeta }
+export interface VastuCommerceBilling {
+  "chargedCents"?: number;
+  "actionCents"?: number;
+  "meterCents"?: number;
+  "totalCents"?: number;
+  "storedBytes"?: number;
+  "refundedCents"?: number;
+  "endpoint"?: string;
+  "refundPending"?: boolean;
+}
+export interface VastuDrawingSheetRequestTitleBlock {
+  project: string;
+  architect: string;
+  drawingNumber?: string;
+  revision?: string;
+  date?: string;
+}
+
+export interface VastuDrawingSheetRequestFieldEvidenceItem {
+  label: string;
+  note?: string;
+  roomId?: string;
+  imageDataUrl?: string;
+}
+
+export interface VastuDrawingSheetRequest {
+  plan: Record<string, VastuJsonValue>;
+  titleBlock: VastuDrawingSheetRequestTitleBlock;
+  paperSize?: string;
+  scaleDenominator?: number;
+  format?: string;
+  zoneOverlay?: boolean;
+  dimensions?: boolean;
+  fieldEvidence?: Array<VastuDrawingSheetRequestFieldEvidenceItem>;
+}
+
+export interface VastuWorkspaceRequestDrawingTitleBlock {
+  project: string;
+  architect: string;
+  drawingNumber?: string;
+  revision?: string;
+  date?: string;
+}
+
+export interface VastuWorkspaceRequestDrawingFieldEvidenceItem {
+  label: string;
+  note?: string;
+  roomId?: string;
+  imageDataUrl?: string;
+}
+
+export interface VastuWorkspaceRequestDrawing {
+  plan: Record<string, VastuJsonValue>;
+  titleBlock: VastuWorkspaceRequestDrawingTitleBlock;
+  paperSize?: string;
+  scaleDenominator?: number;
+  format?: string;
+  zoneOverlay?: boolean;
+  dimensions?: boolean;
+  fieldEvidence?: Array<VastuWorkspaceRequestDrawingFieldEvidenceItem>;
+}
+
+export interface VastuWorkspaceRequest {
+  propertyId?: string;
+  jobId?: string;
+  idempotencyKey?: string;
+  title?: string;
+  input?: Record<string, VastuJsonValue>;
+  outcome?: string;
+  webhookSecret?: string;
+  drawing?: VastuWorkspaceRequestDrawing;
+}
+
+export interface VastuDrawingSheetResponse { success: boolean; data: VastuDrawingSheetData; billing?: VastuCommerceBilling }
+export interface VastuWorkspaceResponse { success: boolean; data: VastuWorkspaceData; billing?: VastuCommerceBilling; mode: "sandbox" }
+export type VastuWorkspaceOperation = "properties" | "jobs" | "get" | "list" | "reset" | "webhook" | "report";
+export interface VastuPropertiesCreateRequestIds {
+  "project": string;
+  "building": string;
+  "unit": string;
+  "floor": string;
+  "revision": string;
+}
+export interface VastuPropertiesCreateRequest extends VastuUsageAttribution {
+  "propertyId"?: string;
+  "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title": string;
+  "data": Record<string, VastuJsonValue>;
+  "retentionDays": number;
+  "linkedScanIds"?: Array<string>;
+  "linkedAssessmentIds"?: Array<string>;
+  "externalId"?: string;
+}
+export interface VastuPropertiesUpdateRequestIds {
+  "project": string;
+  "building": string;
+  "unit": string;
+  "floor": string;
+  "revision": string;
+}
+export interface VastuPropertiesUpdateRequest extends VastuUsageAttribution {
+  "propertyId": string;
+  "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; };
+  "title": string;
+  "data": Record<string, VastuJsonValue>;
+  "retentionDays": number;
+  "linkedScanIds"?: Array<string>;
+  "linkedAssessmentIds"?: Array<string>;
+  "externalId"?: string;
+}
+export interface VastuPropertiesGetRequest extends VastuUsageAttribution {
+  "propertyId": string;
+}
+export interface VastuPropertiesListRequest extends VastuUsageAttribution {
+  "limit"?: number;
+  "cursor"?: string;
+}
+export interface VastuPropertiesDeleteRequest extends VastuUsageAttribution {
+  "propertyId": string;
+}
+export interface VastuPropertiesLinkScanRequest extends VastuUsageAttribution {
+  "propertyId": string;
+  "addScanIds"?: Array<string>;
+  "addAssessmentIds"?: Array<string>;
+  "replace"?: boolean;
+}
+export interface VastuArchiveTierRequest extends VastuUsageAttribution {
+  "propertyId": string;
+  "months": number;
+  "preview"?: boolean;
+}
+export interface VastuArchiveExportRequest extends VastuUsageAttribution {
+  "propertyId": string;
+}
+export interface VastuArchiveDeleteRequest extends VastuUsageAttribution {
+  "propertyId": string;
+  "confirmPropertyId": string;
+}
+export interface VastuArchiveSummaryRequest extends VastuUsageAttribution {
+  "propertyId": string;
+}
+export interface VastuFeedListingsRequestRowsItemPlanAsset {
+  "kind": "url" | "uploadId";
+  "value": string;
+}
+export interface VastuFeedListingsRequestRowsItem {
+  "externalId": string;
+  "revision": string;
+  "project": string;
+  "building": string;
+  "unit": string;
+  "floor": string;
+  "title": string;
+  "address"?: string | null;
+  "city"?: string | null;
+  "bearingDeg"?: number | null;
+  "planAsset"?: { "kind": "url" | "uploadId"; "value": string; } | null;
+  "retentionDays"?: number;
+}
+export interface VastuFeedListingsRequest extends VastuUsageAttribution {
+  "csv"?: string;
+  "rows"?: Array<{ "externalId": string; "revision": string; "project": string; "building": string; "unit": string; "floor": string; "title": string; "address"?: string | null; "city"?: string | null; "bearingDeg"?: number | null; "planAsset"?: { "kind": "url" | "uploadId"; "value": string; } | null; "retentionDays"?: number; }>;
+  "dryRun"?: boolean;
+  "skipDuplicates"?: boolean;
+}
+export interface VastuQuoteCalculateRequestOperationsItem {
+  "op": string;
+  "quantity"?: number;
+  "label"?: string;
+}
+export interface VastuQuoteCalculateRequest extends VastuUsageAttribution {
+  "workflowId"?: string;
+  "operations"?: Array<{ "op": string; "quantity"?: number; "label"?: string; }>;
+  "retentionMonths"?: number;
+  "retentionStoredBytes"?: number;
+}
+export interface VastuPropertiesCreateResponse { success: true; data: VastuPropertiesCreateData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuPropertiesUpdateResponse { success: true; data: VastuPropertiesUpdateData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuPropertiesGetResponse { success: true; data: VastuPropertiesGetData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuPropertiesListResponse { success: true; data: VastuPropertiesListData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuPropertiesDeleteResponse { success: true; data: VastuPropertiesDeleteData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuPropertiesLinkScanResponse { success: true; data: VastuPropertiesLinkScanData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuArchiveTierResponse { success: true; data: VastuArchiveTierData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuArchiveExportResponse { success: true; data: VastuArchiveExportData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuArchiveDeleteResponse { success: true; data: VastuArchiveDeleteData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuArchiveSummaryResponse { success: true; data: VastuArchiveSummaryData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuFeedListingsResponse { success: true; data: VastuFeedListingsData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+export interface VastuQuoteCalculateResponse { success: true; data: VastuQuoteCalculateData; billing?: VastuCommerceBilling; changed?: boolean; preview?: boolean }
+
+export interface VastuWorkflowBilling {
+  "charged": string;
+  "currency": "USD";
+}
+export interface VastuRemediationTasksUpsertRequestTaskEvidenceItem {
+  "reference": string;
+  "photoRef"?: string | null;
+  "note"?: string | null;
+}
+export interface VastuRemediationTasksUpsertRequestTask {
+  "taskId": string;
+  "reportRef": string;
+  "findingRef": string;
+  "remedyKey": string;
+  "title": string;
+  "status": "pending" | "in_progress" | "completed" | "cancelled";
+  "assignee"?: string | null;
+  "dueDate"?: string | null;
+  "evidence"?: Array<{ "reference": string; "photoRef"?: string | null; "note"?: string | null; }>;
+}
+export interface VastuRemediationTasksUpsertRequest {
+  "expectedRevision": number;
+  "mutationId": string;
+  "propertyId": string;
+  "task": { "taskId": string; "reportRef": string; "findingRef": string; "remedyKey": string; "title": string; "status": "pending" | "in_progress" | "completed" | "cancelled"; "assignee"?: string | null; "dueDate"?: string | null; "evidence"?: Array<{ "reference": string; "photoRef"?: string | null; "note"?: string | null; }>; };
+}
+export interface VastuRemediationTasksListRequest {
+  "propertyId": string;
+}
+export interface VastuRemediationTasksDeleteRequest {
+  "id": string;
+  "confirmId": string;
+}
+export interface VastuRemediationReassessRequestPlanRoomsItem {
+  "name"?: string;
+  "room"?: string;
+  "roomType"?: string;
+  "label"?: string;
+  "zone"?: string;
+  "direction"?: string;
+  "x"?: number;
+  "y"?: number;
+  "w"?: number;
+  "h"?: number;
+  "width"?: number;
+  "height"?: number;
+  "polygon"?: Array<VastuJsonValue>;
+  "outline"?: Array<VastuJsonValue>;
+  "area"?: number;
+  "headingErrorDeg"?: number;
+  "positionErrorM"?: number;
+}
+export interface VastuRemediationReassessRequestPlanImportReview {
+  "northKnown": boolean;
+  "scaleKnown": boolean;
+  "analysisReady": boolean;
+  "coordinateFrame": "north-up" | "drawing-up";
+  "units": "m" | "drawing-units";
+}
+export interface VastuRemediationReassessRequestPlan {
+  "rooms": Array<{ "name"?: string; "room"?: string; "roomType"?: string; "label"?: string; "zone"?: string; "direction"?: string; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "width"?: number; "height"?: number; "polygon"?: Array<VastuJsonValue>; "outline"?: Array<VastuJsonValue>; "area"?: number; "headingErrorDeg"?: number; "positionErrorM"?: number; }>;
+  "plot"?: Record<string, VastuJsonValue>;
+  "zoneResolution"?: 8 | 16 | 32;
+  "headingErrorDeg"?: number;
+  "positionErrorM"?: number;
+  "importReview"?: { "northKnown": boolean; "scaleKnown": boolean; "analysisReady": boolean; "coordinateFrame": "north-up" | "drawing-up"; "units": "m" | "drawing-units"; };
+  "merchantCatalogId"?: string;
+}
+export interface VastuRemediationReassessRequest {
+  "expectedRevision": number;
+  "mutationId": string;
+  "propertyId": string;
+  "taskId": string;
+  "plan": { "rooms": Array<{ "name"?: string; "room"?: string; "roomType"?: string; "label"?: string; "zone"?: string; "direction"?: string; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "width"?: number; "height"?: number; "polygon"?: Array<VastuJsonValue>; "outline"?: Array<VastuJsonValue>; "area"?: number; "headingErrorDeg"?: number; "positionErrorM"?: number; }>; "plot"?: Record<string, VastuJsonValue>; "zoneResolution"?: 8 | 16 | 32; "headingErrorDeg"?: number; "positionErrorM"?: number; "importReview"?: { "northKnown": boolean; "scaleKnown": boolean; "analysisReady": boolean; "coordinateFrame": "north-up" | "drawing-up"; "units": "m" | "drawing-units"; }; "merchantCatalogId"?: string; };
+}
+export interface VastuMerchantCatalogUploadRequest {
+  "expectedRevision": number;
+  "mutationId": string;
+  "catalogId": string;
+  "format": "csv" | "json";
+  "content": VastuJsonValue;
+}
+export interface VastuMerchantCatalogGetRequest {
+  "catalogId": string;
+}
+export interface VastuMerchantCatalogDeleteRequest {
+  "id": string;
+  "confirmId": string;
+}
+export interface VastuMerchantRemediesRequest {
+  "catalogId": string;
+  "remedyKeys": Array<string>;
+}
+export interface VastuRemediationTasksUpsertResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuRemediationTasksListResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuRemediationTasksDeleteResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuRemediationReassessResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuMerchantCatalogUploadResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuMerchantCatalogGetResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuMerchantCatalogDeleteResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+export interface VastuMerchantRemediesResponse { success: true; data: VastuWorkflowData; billing: VastuWorkflowBilling; replayed: boolean }
+
+export interface VastuPropertiesCollaborationGetRequest {
+  propertyId: string;
+  ownerId?: string;
+}
+export interface VastuPropertiesCollaborationGetResponse { success: true; data: VastuPropertiesCollaborationGetData; billing: { chargedCents: number } }
+export interface VastuPropertiesCollaborationInviteRequest {
+  propertyId: string;
+  ownerId?: string;
+  accountId?: string;
+  email?: string;
+  accept?: boolean;
+  role: "viewer" | "editor" | "reviewer";
+}
+export interface VastuPropertiesCollaborationInviteResponse { success: true; data: VastuPropertiesCollaborationInviteData; billing: { chargedCents: number } }
+export interface VastuPropertiesCollaborationRevokeRequest {
+  propertyId: string;
+  ownerId?: string;
+  accountId?: string;
+  invitationId?: string;
+}
+export interface VastuPropertiesCollaborationRevokeResponse { success: true; data: VastuPropertiesCollaborationRevokeData; billing: { chargedCents: number } }
+export interface VastuPropertiesCollaborationMembersRequest {
+  propertyId: string;
+  ownerId?: string;
+}
+export interface VastuPropertiesCollaborationMembersResponse { success: true; data: VastuPropertiesCollaborationMembersData; billing: { chargedCents: number } }
+export interface VastuPropertiesCollaborationCommentRequest {
+  propertyId: string;
+  ownerId?: string;
+  assessmentId: string;
+  revision: string;
+  expectedContentHash: string;
+  text: string;
+}
+export interface VastuPropertiesCollaborationCommentResponse { success: true; data: VastuPropertiesCollaborationCommentData; billing: { chargedCents: number } }
+export interface VastuPropertiesCollaborationReviewRequest {
+  propertyId: string;
+  ownerId?: string;
+  assessmentId: string;
+  revision: string;
+  expectedContentHash: string;
+  decision: "approved" | "rejected";
+}
+export interface VastuPropertiesCollaborationReviewResponse { success: true; data: VastuPropertiesCollaborationReviewData; billing: { chargedCents: number } }
+export interface VastuPropertiesCollaborationUpdateRequest {
+  propertyId: string;
+  ownerId?: string;
+  revision: string;
+  expectedContentHash: string;
+  title: string;
+  data: Record<string, VastuJsonValue>;
+}
+export interface VastuPropertiesCollaborationUpdateResponse { success: true; data: VastuPropertiesCollaborationUpdateData; billing: { chargedCents: number } }
+export interface VastuPropertiesActivityListRequest {
+  propertyId: string;
+  ownerId?: string;
+  cursor?: number;
+  limit?: number;
+}
+export interface VastuPropertiesActivityListResponse { success: true; data: VastuPropertiesActivityListData; billing: { chargedCents: number } }
+export interface VastuPropertiesActivityExportRequest {
+  propertyId: string;
+  ownerId?: string;
+  cursor?: number;
+  limit?: number;
+}
+export interface VastuPropertiesActivityExportResponse { success: true; data: VastuPropertiesActivityExportData; billing: { chargedCents: number } }
+
 export interface VastuOperationContracts {
+  "remediation/tasks/upsert": { method: 'POST'; request: VastuRemediationTasksUpsertRequest; auth: VastuApiKeyAuth; response: VastuRemediationTasksUpsertResponse; error: VastuErrorResponse };
+  "remediation/tasks/list": { method: 'POST'; request: VastuRemediationTasksListRequest; auth: VastuApiKeyAuth; response: VastuRemediationTasksListResponse; error: VastuErrorResponse };
+  "remediation/tasks/delete": { method: 'POST'; request: VastuRemediationTasksDeleteRequest; auth: VastuApiKeyAuth; response: VastuRemediationTasksDeleteResponse; error: VastuErrorResponse };
+  "remediation/reassess": { method: 'POST'; request: VastuRemediationReassessRequest; auth: VastuApiKeyAuth; response: VastuRemediationReassessResponse; error: VastuErrorResponse };
+  "merchant/catalog/upload": { method: 'POST'; request: VastuMerchantCatalogUploadRequest; auth: VastuApiKeyAuth; response: VastuMerchantCatalogUploadResponse; error: VastuErrorResponse };
+  "merchant/catalog/get": { method: 'POST'; request: VastuMerchantCatalogGetRequest; auth: VastuApiKeyAuth; response: VastuMerchantCatalogGetResponse; error: VastuErrorResponse };
+  "merchant/catalog/delete": { method: 'POST'; request: VastuMerchantCatalogDeleteRequest; auth: VastuApiKeyAuth; response: VastuMerchantCatalogDeleteResponse; error: VastuErrorResponse };
+  "merchant/remedies": { method: 'POST'; request: VastuMerchantRemediesRequest; auth: VastuApiKeyAuth; response: VastuMerchantRemediesResponse; error: VastuErrorResponse };
+  "plan/compare-versions": { method: 'POST'; request: VastuCompareVersionsRequest; auth: VastuApiKeyAuth; response: VastuCompareVersionsResponse; error: VastuErrorResponse };
+  "receipt/verify": { method: 'POST'; request: VastuReceiptVerifyRequest; auth: VastuApiKeyAuth; response: VastuReceiptVerifyResponse; error: VastuErrorResponse };
+  "rules/versions": { method: 'GET'; request: Record<string, never>; auth: VastuApiKeyAuth; response: VastuRuleVersionsResponse; error: VastuErrorResponse };
+  "portfolio/search": { method: "POST"; request: VastuPortfolioSearchRequest; auth: VastuApiKeyAuth; response: VastuPortfolioSearchResponse; error: VastuErrorResponse };
+  "portfolio/compare": { method: "POST"; request: VastuPortfolioCompareRequest; auth: VastuApiKeyAuth; response: VastuPortfolioCompareResponse; error: VastuErrorResponse };
+  "portfolio/analytics": { method: "POST"; request: VastuPortfolioAnalyticsRequest; auth: VastuApiKeyAuth; response: VastuPortfolioAnalyticsResponse; error: VastuErrorResponse };
+  "portfolio/usage": { method: "POST"; request: VastuPortfolioUsageRequest; auth: VastuApiKeyAuth; response: VastuPortfolioUsageResponse; error: VastuErrorResponse };
+  "portfolio/usage/export": { method: "POST"; request: VastuPortfolioUsageExportRequest; auth: VastuApiKeyAuth; response: VastuPortfolioUsageExportResponse; error: VastuErrorResponse };
+  "portfolio/budgets/set": { method: "POST"; request: VastuPortfolioBudgetsSetRequest; auth: VastuApiKeyAuth; response: VastuPortfolioBudgetsSetResponse; error: VastuErrorResponse };
+  "portfolio/budgets/get": { method: "POST"; request: VastuPortfolioBudgetsGetRequest; auth: VastuApiKeyAuth; response: VastuPortfolioBudgetsGetResponse; error: VastuErrorResponse };
+  "report/drawing-sheet": { method: "POST"; request: VastuDrawingSheetRequest; auth: VastuApiKeyAuth; response: VastuDrawingSheetResponse; error: VastuErrorResponse };
+  "properties/collaboration/get": { method: 'POST'; request: VastuPropertiesCollaborationGetRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationGetResponse; error: VastuErrorResponse };
+  "properties/collaboration/invite": { method: 'POST'; request: VastuPropertiesCollaborationInviteRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationInviteResponse; error: VastuErrorResponse };
+  "properties/collaboration/revoke": { method: 'POST'; request: VastuPropertiesCollaborationRevokeRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationRevokeResponse; error: VastuErrorResponse };
+  "properties/collaboration/members": { method: 'POST'; request: VastuPropertiesCollaborationMembersRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationMembersResponse; error: VastuErrorResponse };
+  "properties/collaboration/comment": { method: 'POST'; request: VastuPropertiesCollaborationCommentRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationCommentResponse; error: VastuErrorResponse };
+  "properties/collaboration/review": { method: 'POST'; request: VastuPropertiesCollaborationReviewRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationReviewResponse; error: VastuErrorResponse };
+  "properties/collaboration/update": { method: 'POST'; request: VastuPropertiesCollaborationUpdateRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCollaborationUpdateResponse; error: VastuErrorResponse };
+  "properties/activity/list": { method: 'POST'; request: VastuPropertiesActivityListRequest; auth: VastuApiKeyAuth; response: VastuPropertiesActivityListResponse; error: VastuErrorResponse };
+  "properties/activity/export": { method: 'POST'; request: VastuPropertiesActivityExportRequest; auth: VastuApiKeyAuth; response: VastuPropertiesActivityExportResponse; error: VastuErrorResponse };
+
+  "properties/create": { method: 'POST'; request: VastuPropertiesCreateRequest; auth: VastuApiKeyAuth; response: VastuPropertiesCreateResponse; error: VastuErrorResponse };
+  "properties/update": { method: 'POST'; request: VastuPropertiesUpdateRequest; auth: VastuApiKeyAuth; response: VastuPropertiesUpdateResponse; error: VastuErrorResponse };
+  "properties/get": { method: 'POST'; request: VastuPropertiesGetRequest; auth: VastuApiKeyAuth; response: VastuPropertiesGetResponse; error: VastuErrorResponse };
+  "properties/list": { method: 'POST'; request: VastuPropertiesListRequest; auth: VastuApiKeyAuth; response: VastuPropertiesListResponse; error: VastuErrorResponse };
+  "properties/delete": { method: 'POST'; request: VastuPropertiesDeleteRequest; auth: VastuApiKeyAuth; response: VastuPropertiesDeleteResponse; error: VastuErrorResponse };
+  "properties/link-scan": { method: 'POST'; request: VastuPropertiesLinkScanRequest; auth: VastuApiKeyAuth; response: VastuPropertiesLinkScanResponse; error: VastuErrorResponse };
+  "archive/tier": { method: 'POST'; request: VastuArchiveTierRequest; auth: VastuApiKeyAuth; response: VastuArchiveTierResponse; error: VastuErrorResponse };
+  "archive/export": { method: 'POST'; request: VastuArchiveExportRequest; auth: VastuApiKeyAuth; response: VastuArchiveExportResponse; error: VastuErrorResponse };
+  "archive/delete": { method: 'POST'; request: VastuArchiveDeleteRequest; auth: VastuApiKeyAuth; response: VastuArchiveDeleteResponse; error: VastuErrorResponse };
+  "archive/summary": { method: 'POST'; request: VastuArchiveSummaryRequest; auth: VastuApiKeyAuth; response: VastuArchiveSummaryResponse; error: VastuErrorResponse };
+  "feed/listings": { method: 'POST'; request: VastuFeedListingsRequest; auth: VastuApiKeyAuth; response: VastuFeedListingsResponse; error: VastuErrorResponse };
+  "quote/calculate": { method: 'POST'; request: VastuQuoteCalculateRequest; auth: VastuApiKeyAuth; response: VastuQuoteCalculateResponse; error: VastuErrorResponse };
+
   "scans/timelapse": { method: 'POST'; request: VastuScansTimelapseRequest; auth: VastuApiKeyAuth; response: VastuScansTimelapseResponse; error: VastuErrorResponse };
   "scans/delete": { method: 'POST'; request: VastuScansDeleteRequest; auth: VastuApiKeyAuth; response: VastuScansDeleteResponse; error: VastuErrorResponse };
   "scans/list": { method: 'POST'; request: VastuScansListRequest; auth: VastuApiKeyAuth; response: VastuScansListResponse; error: VastuErrorResponse };
   "scans/retrieve": { method: 'POST'; request: VastuScansRetrieveRequest; auth: VastuApiKeyAuth; response: VastuScansRetrieveResponse; error: VastuErrorResponse };
   "scans/save": { method: 'POST'; request: VastuScansSaveRequest; auth: VastuApiKeyAuth; response: VastuScansSaveResponse; error: VastuErrorResponse };
   "ar/deity-icons": { method: 'POST'; request: VastuArDeityIconsRequest; auth: VastuApiKeyAuth; response: VastuArDeityIconsResponse; error: VastuErrorResponse };
+  "ar/capture-merge": { method: 'POST'; request: VastuArCaptureMergeRequest; auth: VastuApiKeyAuth; response: VastuArCaptureMergeResponse; error: VastuErrorResponse };
+  "plot/from-survey": { method: 'POST'; request: VastuPlotFromSurveyRequest; auth: VastuApiKeyAuth; response: VastuPlotFromSurveyResponse; error: VastuErrorResponse };
   "ar/room-capture": { method: 'POST'; request: VastuArRoomCaptureRequest; auth: VastuApiKeyAuth; response: VastuArRoomCaptureResponse; error: VastuErrorResponse };
+  "ar/attestation/challenge": { method: 'POST'; request: VastuArAttestationChallengeRequest; auth: VastuApiKeyAuth; response: VastuArAttestationChallengeResponse; error: VastuErrorResponse };
   "ar/yantra-meshes": { method: 'POST'; request: VastuArYantraMeshesRequest; auth: VastuApiKeyAuth; response: VastuArYantraMeshesResponse; error: VastuErrorResponse };
   "ar/zone-textures": { method: 'POST'; request: VastuArZoneTexturesRequest; auth: VastuApiKeyAuth; response: VastuArZoneTexturesResponse; error: VastuErrorResponse };
   "ar/anchor-recommendations": { method: 'POST'; request: VastuArAnchorRecommendationsRequest; auth: VastuApiKeyAuth; response: VastuArAnchorRecommendationsResponse; error: VastuErrorResponse };
@@ -2265,6 +3797,10 @@ export interface VastuOperationContracts {
   "ar/true-north-calibrate": { method: 'POST'; request: VastuArTrueNorthCalibrateRequest; auth: VastuApiKeyAuth; response: VastuArTrueNorthCalibrateResponse; error: VastuErrorResponse };
   "assessments": { method: 'POST'; request: VastuAssessmentsRequest; auth: VastuApiKeyAuth; response: VastuAssessmentsResponse; error: VastuErrorResponse };
   "assessments/batch": { method: 'POST'; request: VastuAssessmentsBatchRequest; auth: VastuApiKeyAuth; response: VastuAssessmentsBatchResponse; error: VastuErrorResponse };
+  "jobs": { method: 'POST'; request: VastuJobsRequest; auth: VastuApiKeyAuth; response: VastuJobsResponse; error: VastuErrorResponse };
+  "jobs/{id}": { method: 'GET'; request: undefined; auth: VastuApiKeyAuth; response: VastuJobsIdResponse; error: VastuErrorResponse };
+  "jobs/{id}/results": { method: 'GET'; request: VastuJobResultsOptions; auth: VastuApiKeyAuth; response: VastuJobsIdResultsResponse; error: VastuErrorResponse };
+  "jobs/{id}/cancel": { method: 'POST'; request: undefined; auth: VastuApiKeyAuth; response: VastuJobsIdCancelResponse; error: VastuErrorResponse };
   "audit/floor-plan": { method: 'POST'; request: VastuAuditFloorPlanRequest; auth: VastuApiKeyAuth; response: VastuAuditFloorPlanResponse; error: VastuErrorResponse };
   "audit/floor-plan-detailed": { method: 'POST'; request: VastuAuditFloorPlanDetailedRequest; auth: VastuApiKeyAuth; response: VastuAuditFloorPlanDetailedResponse; error: VastuErrorResponse };
   "audit/single-room": { method: 'POST'; request: VastuAuditSingleRoomRequest; auth: VastuApiKeyAuth; response: VastuAuditSingleRoomResponse; error: VastuErrorResponse };
@@ -2301,6 +3837,13 @@ export interface VastuOperationContracts {
   "plan/generate": { method: 'POST'; request: VastuPlanGenerateRequest; auth: VastuApiKeyAuth; response: VastuPlanGenerateResponse; error: VastuErrorResponse };
   "plan/optimize": { method: 'POST'; request: VastuPlanOptimizeRequest; auth: VastuApiKeyAuth; response: VastuPlanOptimizeResponse; error: VastuErrorResponse };
   "plan/report": { method: 'POST'; request: VastuPlanReportRequest; auth: VastuApiKeyAuth; response: VastuPlanReportResponse; error: VastuErrorResponse };
+  "plan/import-dxf": { method: 'POST'; request: VastuPlanImportDxfRequest; auth: VastuApiKeyAuth; response: VastuPlanImportDxfResponse; error: VastuErrorResponse };
+  "plan/export-dxf": { method: 'POST'; request: VastuPlanExportDxfRequest; auth: VastuApiKeyAuth; response: VastuPlanExportDxfResponse; error: VastuErrorResponse };
+  "plan/export-ifc": { method: 'POST'; request: VastuPlanExportIfcRequest; auth: VastuApiKeyAuth; response: VastuPlanExportIfcResponse; error: VastuErrorResponse };
+  "plan/convert-units": { method: 'POST'; request: VastuPlanConvertUnitsRequest; auth: VastuApiKeyAuth; response: VastuPlanConvertUnitsResponse; error: VastuErrorResponse };
+  "plan/import-ifc": { method: 'POST'; request: VastuPlanImportIfcRequest; auth: VastuApiKeyAuth; response: VastuPlanImportIfcResponse; error: VastuErrorResponse };
+  "plan/import-image": { method: 'POST'; request: VastuPlanImportImageRequest; auth: VastuApiKeyAuth; response: VastuPlanImportImageResponse; error: VastuErrorResponse };
+  "plan/import-pdf": { method: 'POST'; request: VastuPlanImportPdfRequest; auth: VastuApiKeyAuth; response: VastuPlanImportPdfResponse; error: VastuErrorResponse };
   "plan/upload": { method: 'POST'; request: VastuPlanUploadRequest; auth: VastuApiKeyAuth; response: VastuPlanUploadResponse; error: VastuErrorResponse };
   "plot/extensions-cuts": { method: 'POST'; request: VastuPlotExtensionsCutsRequest; auth: VastuApiKeyAuth; response: VastuPlotExtensionsCutsResponse; error: VastuErrorResponse };
   "plot/orientation": { method: 'POST'; request: VastuPlotOrientationRequest; auth: VastuApiKeyAuth; response: VastuPlotOrientationResponse; error: VastuErrorResponse };
@@ -2969,3 +4512,86 @@ export interface EnhancedQuestionQuery extends QuestionQuery {
   /** Response format: 'text', 'markdown', or 'json' */
   responseFormat?: ResponseFormat;
 }
+
+export interface VastuPlanImportDxfRequest extends VastuUsageAttribution {
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits; maxChargeUsd?: string; dxf: string; fileName?: string; contentType?: string; trueNorthDeg?: number; unitsOverride?: number; layerRoles?: Record<string, "room" | "plot" | "door" | "window" | "label" | "hole" | "ignore">; }
+export type VastuPlanImportDxfResponse = VastuResponse<VastuPlanImportDxfData>;
+export interface VastuPlanExportDxfRequest extends VastuUsageAttribution { outputUnits?: VastuPlanUnits;
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits; maxChargeUsd?: string; plan: Record<string, VastuJsonValue>; analysis?: Record<string, VastuJsonValue>; zones?: 8 | 16 | 32; unitsCode?: number; trueNorthDeg?: number; }
+export type VastuPlanExportDxfResponse = VastuResponse<VastuPlanExportDxfData>;
+export interface VastuPlanImportIfcRequest extends VastuUsageAttribution {
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits; maxChargeUsd?: string; ifc: string; trueNorthDeg?: number; }
+export type VastuPlanImportIfcResponse = VastuResponse<VastuPlanImportIfcData>;
+export type VastuArCaptureMergeResponse = { success: true; data: VastuArCaptureMergeData; billing: VastuBilling; meta: VastuMeta };
+
+export type VastuPlotFromSurveyResponse = { success: true; data: VastuPlotFromSurveyData; billing: VastuBilling; meta: VastuMeta };
+
+export interface VastuCompareVersionsRequest { fromVersion: string; toVersion: string; operation?: 'plan/analyze' | 'assessments' | 'score/overall' | 'score/zone-wise' | 'score/compliance-index'; input: Record<string, VastuJsonValue>; }
+export interface VastuReceiptVerifyRequest { token: string; input?: Record<string, VastuJsonValue>; }
+export type VastuCompareVersionsResponse = VastuResponse<VastuCompareVersionsData>;
+export type VastuReceiptVerifyResponse = VastuResponse<VastuReceiptVerifyData>;
+export type VastuRuleVersionsResponse = VastuResponse<VastuRuleVersionsData>;
+export interface VastuUsageAttribution { propertyId?: string; tenantRef?: string }
+export interface VastuPortfolioSearchRequest {
+  city?: string;
+  tags?: string[];
+  minScore?: number;
+  maxScore?: number;
+  zoneDefects?: string[];
+  ruleset?: string;
+  inputSource?: string;
+  sort?: "propertyId" | "scoreAsc" | "scoreDesc" | "city" | "createdAt" | "tags" | "zoneDefectsAsc" | "zoneDefectsDesc";
+  limit?: number;
+  cursor?: string;
+}
+export interface VastuPortfolioSearchResponse { success: true; data: VastuPortfolioSearchData; billing: { charged: "0"; currency: "USD" } }
+export interface VastuPortfolioCompareRequest {
+  propertyIds: string[];
+}
+export interface VastuPortfolioCompareResponse { success: true; data: VastuPortfolioCompareData; billing: { charged: "0"; currency: "USD" } }
+export interface VastuPortfolioAnalyticsRequest {
+  fromEpoch?: number;
+  toEpoch?: number;
+  tag?: string;
+  propertyId?: string;
+  tenantRef?: string;
+}
+export interface VastuPortfolioAnalyticsResponse { success: true; data: VastuPortfolioAnalyticsData; billing: { charged: "0"; currency: "USD" } }
+export interface VastuPortfolioUsageRequest {
+  fromEpoch?: number;
+  toEpoch?: number;
+  tag?: string;
+  propertyId?: string;
+  tenantRef?: string;
+}
+export interface VastuPortfolioUsageResponse { success: true; data: VastuPortfolioUsageData; billing: { charged: "0"; currency: "USD" } }
+export interface VastuPortfolioUsageExportRequest {
+  fromEpoch?: number;
+  toEpoch?: number;
+  tag?: string;
+  propertyId?: string;
+  tenantRef?: string;
+}
+export interface VastuPortfolioUsageExportResponse { success: true; data: VastuPortfolioUsageExportData; billing: { charged: "0"; currency: "USD" } }
+export interface VastuPortfolioBudgetsSetRequest {
+  propertyId?: string;
+  tenantRef?: string;
+  capUsd: string | null;
+}
+export interface VastuPortfolioBudgetsSetResponse { success: true; data: VastuPortfolioBudgetsSetData; billing: { charged: "0"; currency: "USD" } }
+export interface VastuPortfolioBudgetsGetRequest {
+  propertyId?: string;
+  tenantRef?: string;
+}
+export interface VastuPortfolioBudgetsGetResponse { success: true; data: VastuPortfolioBudgetsGetData; billing: { charged: "0"; currency: "USD" } }
+export type VastuPlanUnits = 'm' | 'ft' | 'mm' | 'in';
+export interface VastuPlanRegion { polygon: Array<Array<number>>; holes?: Array<Array<Array<number>>>; }
+export interface VastuPlanExportIfcRequest {
+  units?: VastuPlanUnits;
+  inputUnits?: VastuPlanUnits; plan: Record<string, VastuJsonValue>; outputUnits?: VastuPlanUnits; maxChargeUsd?: string; }
+export interface VastuPlanConvertUnitsRequest { plan: Record<string, VastuJsonValue>; inputUnits: VastuPlanUnits; outputUnits: VastuPlanUnits; }
+export type VastuPlanExportIfcResponse = VastuResponse<VastuPlanExportIfcData>;
+export type VastuPlanConvertUnitsResponse = VastuResponse<VastuPlanConvertUnitsData>;
