@@ -3,6 +3,7 @@
  * Main client class for interacting with the Vedika Astrology API.
  */
 
+import type { VastuDrawingSheetRequest, VastuWorkspaceRequest, VastuWorkspaceResponse, VastuWorkspaceOperation } from './types';
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import {
   VedikaClientOptions,
@@ -65,7 +66,21 @@ import {
   VastuOperationResult,
   VastuOperation,
   VastuOperationContracts,
+  VastuCompareVersionsRequest, VastuCompareVersionsResponse, VastuReceiptVerifyRequest, VastuReceiptVerifyResponse, VastuRuleVersionsResponse,
   VastuCallOptions,
+  VastuAssessmentsRequest,
+  VastuAssessmentData,
+  VastuEnvelope,
+  VastuJobIdOperation,
+  VastuJobsRequest,
+  VastuJobsResponse,
+  VastuJobsIdResponse,
+  VastuJobsIdResultsResponse,
+  VastuJobsIdCancelResponse,
+  VastuJobResultItem,
+  VastuJobResultsOptions,
+  VastuChatUploadData,
+  VastuChatUploadFile,
 } from './types';
 import {
   VedikaAPIError,
@@ -77,7 +92,9 @@ import {
   TimeoutError,
   ServerError,
   NetworkError,
+  DailyLimitExceededError,
 } from './exceptions';
+import { certifiedIdempotencyHeaders } from './idempotency-policy';
 import type { VoiceQuery, VoiceResult, VoiceMetaHeader, VoiceResponse } from './types';
 // Value import (runtime helper) — transition-tolerant western normalizer (3.0.6).
 import { normalizeWesternRelationship, VASTU_OPERATIONS } from './types';
@@ -143,9 +160,20 @@ function isBilledVastuGet(method: string | undefined, url: string | undefined): 
   if ((method || 'get').toLowerCase() !== 'get') return false;
   const path = new URL(url || '', 'https://api.vedika.io').pathname;
   const match = /^\/v2\/(?:astrology\/)?vastu\/(.+)$/.exec(path);
-  if (!match) return false;
+  // Rule versions are free discovery; job status/results are free owner reads.
+  if (!match || !match[1] || match[1] === 'rules/versions' || match[1].startsWith('jobs/')) return false;
   const contract = VASTU_OPERATION_CONTRACTS[match[1] as keyof typeof VASTU_OPERATION_CONTRACTS];
   return contract?.method === 'GET' || contract?.method === 'GET_OR_POST';
+}
+
+/**
+ * Scan save/retrieve/list/delete/timelapse carry their retry identity in the
+ * body (scanId or requestId) and the server answers 422 to any retry header,
+ * so these requests never get one and are still safe to retry.
+ */
+const BODY_IDENTITY_SCAN_PATH = /^\/v2\/(?:astrology\/)?vastu\/scans\/(?:save|retrieve|list|delete|timelapse)$/;
+function usesBodyIdentity(url: string | undefined): boolean {
+  return BODY_IDENTITY_SCAN_PATH.test(new URL(url || '', 'https://api.vedika.io').pathname);
 }
 
 /** Does `headers` already carry a client idempotency key (any accepted casing)? */
@@ -157,26 +185,96 @@ function hasIdempotencyHeader(headers: Record<string, any> | undefined): boolean
   });
 }
 
-/**
- * True when a failed request is safe to automatically retry: the transport
- * layer never streams/consumes a one-shot body (excludes `askQuestionStream`
- * and `askVoice`'s arraybuffer response), AND the request is either
- * naturally idempotent (GET/HEAD/OPTIONS) or carries a client idempotency key
- * the server can dedupe a retried charge on.
- */
-function isRetryableRequest(config: any): boolean {
-  if (!config) return false;
-  if (config.responseType === 'stream' || config.responseType === 'arraybuffer') return false;
-  const method = (config.method || 'get').toLowerCase();
-  if (method === 'get' || method === 'head' || method === 'options') return true;
-  return hasIdempotencyHeader(config.headers);
+/** The Vastu family accepts a client key on every non-scan operation (native ledger identity). */
+function isVastuMutation(method: string | undefined, url: string | undefined): boolean {
+  if (!isMutatingMethod(method)) return false;
+  const path = new URL(url || '', 'https://api.vedika.io').pathname;
+  return /^\/v2\/(?:astrology\/)?vastu\//.test(path);
 }
 
-/** True for the HTTP outcomes worth retrying: rate limit, transient 5xx, or no response at all. */
-function isRetryableError(error: AxiosError): boolean {
-  if (!error.response) return true; // network error / timeout — request may never have reached the server
-  const status = error.response.status;
-  return status === 429 || status === 502 || status === 503 || status === 504;
+/** Remove every client idempotency header (any casing) from a request config. */
+function stripIdempotencyHeaders(headers: Record<string, any> | undefined): void {
+  if (!headers) return;
+  for (const k of Object.keys(headers)) {
+    const lower = k.toLowerCase();
+    if (lower === 'idempotency-key' || lower === 'x-idempotency-key' || lower === 'x-request-id') {
+      delete headers[k];
+    }
+  }
+}
+
+/**
+ * The transport can send this request again: it never streams or consumes a
+ * one-shot body (`askQuestionStream`, `askVoice`'s arraybuffer response).
+ */
+function isReplayableTransport(config: any): boolean {
+  if (!config) return false;
+  return config.responseType !== 'stream' && config.responseType !== 'arraybuffer';
+}
+
+/**
+ * True when repeating the request after an AMBIGUOUS failure (timeout, dropped
+ * connection, 502/503/504) cannot charge twice: GET/HEAD/OPTIONS, or a request
+ * that carries a client idempotency key the server dedupes on.
+ */
+function isRetryableRequest(config: any): boolean {
+  if (!isReplayableTransport(config)) return false;
+  const method = (config.method || 'get').toLowerCase();
+  if (method === 'get' || method === 'head' || method === 'options') return true;
+  return usesBodyIdentity(config.url) || hasIdempotencyHeader(config.headers);
+}
+
+/** 429 codes that will not clear by waiting a few seconds: never retried. */
+const NON_RETRYABLE_429_CODES = new Set(['DAILY_LIMIT_EXCEEDED', 'PLAN_LIMIT_EXCEEDED']);
+
+/** Longest Retry-After the SDK will sleep for. A longer ask is surfaced to the caller instead. */
+const MAX_RETRY_AFTER_MS = 30_000;
+
+/** Seconds the server asked us to wait: body `retryAfter`, else the Retry-After header. */
+function retryAfterSeconds(body: any, headers: any): number | undefined {
+  const fromBody = body && typeof body === 'object' ? Number(body.retryAfter) : NaN;
+  if (Number.isFinite(fromBody) && fromBody >= 0) return fromBody;
+  const raw = headers && (headers['retry-after'] ?? headers['Retry-After']);
+  const fromHeader = raw === undefined ? NaN : Number(raw);
+  return Number.isFinite(fromHeader) && fromHeader >= 0 ? fromHeader : undefined;
+}
+
+/**
+ * Parse an error response body into an object. Voice responses arrive as an
+ * arraybuffer and streaming responses as a stream, so a plain `data.message`
+ * read loses the code and message there.
+ */
+async function readErrorBody(data: any): Promise<Record<string, any> | undefined> {
+  if (data === undefined || data === null) return undefined;
+  try {
+    if (typeof data === 'string') {
+      const parsed = JSON.parse(data);
+      return parsed && typeof parsed === 'object' ? parsed : undefined;
+    }
+    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      const parsed = JSON.parse(new TextDecoder().decode(bytes));
+      return parsed && typeof parsed === 'object' ? parsed : undefined;
+    }
+    if (typeof data === 'object' && typeof data[Symbol.asyncIterator] === 'function' && typeof data.on === 'function') {
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for await (const chunk of data) {
+        const part: Uint8Array = typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk;
+        size += part.length;
+        if (size > 65536) return undefined;
+        chunks.push(part);
+      }
+      const all = new Uint8Array(size);
+      let at = 0;
+      for (const c of chunks) { all.set(c, at); at += c.length; }
+      const parsed = JSON.parse(new TextDecoder().decode(all));
+      return parsed && typeof parsed === 'object' ? parsed : undefined;
+    }
+  } catch {
+    return undefined;
+  }
+  return typeof data === 'object' ? data : undefined;
 }
 
 /**
@@ -188,24 +286,96 @@ function isRetryableError(error: AxiosError): boolean {
  * VASTU_GET_REFERENCE_ROUTES + VASTU_DUAL_ROUTE in vedika-v2/src/vastu.rs.
  */
 function isVastuGetOp(op: string): boolean {
-  return op.startsWith('reference/') || op === 'direction/declination';
+  return (op === 'rules/versions' || op.startsWith('reference/')) || op === 'direction/declination' || VASTU_JOB_GET_PATH.test(op);
 }
 
-function vastuCallConfig(op: string, options?: VastuCallOptions): { headers: { 'Idempotency-Key': string } } | undefined {
+/** A job id as the server issues it. Checked before it is put into a path. */
+const VASTU_JOB_ID = /^vjob_[0-9a-f]{32}$/;
+/** `jobs/{id}` and `jobs/{id}/results` are GET; `jobs` and `jobs/{id}/cancel` are POST. */
+const VASTU_JOB_GET_PATH = /^jobs\/[^/]+(?:\/results)?$/;
+const VASTU_JOB_ID_PATH = /^jobs\/([^/]+)(?:\/(?:results|cancel))?$/;
+
+function assertVastuJobId(jobId: unknown): string {
+  if (typeof jobId !== 'string' || !VASTU_JOB_ID.test(jobId)) {
+    throw new ValidationError('jobId must be the vjob_... id returned when the job was submitted');
+  }
+  return jobId;
+}
+
+/** Idempotency-Key rule shared by the multipart upload: 1-256 visible ASCII characters. */
+const VASTU_UPLOAD_KEY = /^[!-~]{1,256}$/;
+
+function vastuCallConfig(op: string, options?: VastuCallOptions): { headers: Record<string, string> } | undefined {
   const key = options?.idempotencyKey;
-  if ((op === 'assessments/batch' || key !== undefined) && (typeof key !== 'string' || !key.trim())) {
+  const attributionHeaders: Record<string, string> = {};
+  if (options?.propertyId) attributionHeaders['x-vastu-property-id'] = options.propertyId;
+  if (options?.tenantRef) attributionHeaders['x-vastu-tenant-ref'] = options.tenantRef;
+  if (usesBodyIdentity(`/v2/vastu/${op}`)) {
+    if (key !== undefined) {
+      throw new ValidationError('Scan operations use scanId or requestId in the body; do not pass an Idempotency-Key');
+    }
+    return Object.keys(attributionHeaders).length ? { headers: attributionHeaders } : undefined;
+  }
+  if ((op === 'assessments/batch' || op === 'jobs' || key !== undefined) && (typeof key !== 'string' || !key.trim())) {
     throw new ValidationError('A nonblank caller-retained Idempotency-Key is required');
   }
-  return key === undefined ? undefined : { headers: { 'Idempotency-Key': key } };
+  if (key !== undefined) attributionHeaders['Idempotency-Key'] = key;
+  return Object.keys(attributionHeaders).length ? { headers: attributionHeaders } : undefined;
 }
 
 const VASTU_OPERATION_CONTRACTS = {
+  'remediation/tasks/upsert': { method: 'POST', requestSchema: 'VastuRemediationTasksUpsertRequest', responseSchema: 'VastuRemediationTasksUpsertResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'remediation/tasks/list': { method: 'POST', requestSchema: 'VastuRemediationTasksListRequest', responseSchema: 'VastuRemediationTasksListResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'remediation/tasks/delete': { method: 'POST', requestSchema: 'VastuRemediationTasksDeleteRequest', responseSchema: 'VastuRemediationTasksDeleteResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'remediation/reassess': { method: 'POST', requestSchema: 'VastuRemediationReassessRequest', responseSchema: 'VastuRemediationReassessResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'merchant/catalog/upload': { method: 'POST', requestSchema: 'VastuMerchantCatalogUploadRequest', responseSchema: 'VastuMerchantCatalogUploadResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'merchant/catalog/get': { method: 'POST', requestSchema: 'VastuMerchantCatalogGetRequest', responseSchema: 'VastuMerchantCatalogGetResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'merchant/catalog/delete': { method: 'POST', requestSchema: 'VastuMerchantCatalogDeleteRequest', responseSchema: 'VastuMerchantCatalogDeleteResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'merchant/remedies': { method: 'POST', requestSchema: 'VastuMerchantRemediesRequest', responseSchema: 'VastuMerchantRemediesResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+
+  'plan/compare-versions': { method: 'POST', requestSchema: 'VastuCompareVersionsRequest', responseSchema: 'VastuCompareVersionsResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 503] },
+  'receipt/verify': { method: 'POST', requestSchema: 'VastuReceiptVerifyRequest', responseSchema: 'VastuReceiptVerifyResponse', auth: 'apiKey', errors: [400, 401, 405, 415, 503] },
+  'rules/versions': { method: 'GET', requestSchema: null, responseSchema: 'VastuRuleVersionsResponse', auth: 'apiKey', errors: [400, 401, 405, 503] },
+  'portfolio/search': { method: 'POST', requestSchema: 'VastuPortfolioSearchRequest', responseSchema: 'VastuPortfolioSearchResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+  'portfolio/compare': { method: 'POST', requestSchema: 'VastuPortfolioCompareRequest', responseSchema: 'VastuPortfolioCompareResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+  'portfolio/analytics': { method: 'POST', requestSchema: 'VastuPortfolioAnalyticsRequest', responseSchema: 'VastuPortfolioAnalyticsResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+  'portfolio/usage': { method: 'POST', requestSchema: 'VastuPortfolioUsageRequest', responseSchema: 'VastuPortfolioUsageResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+  'portfolio/usage/export': { method: 'POST', requestSchema: 'VastuPortfolioUsageExportRequest', responseSchema: 'VastuPortfolioUsageExportResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+  'portfolio/budgets/set': { method: 'POST', requestSchema: 'VastuPortfolioBudgetsSetRequest', responseSchema: 'VastuPortfolioBudgetsSetResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+  'portfolio/budgets/get': { method: 'POST', requestSchema: 'VastuPortfolioBudgetsGetRequest', responseSchema: 'VastuPortfolioBudgetsGetResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
+
+  'report/drawing-sheet': { method: 'POST', requestSchema: 'VastuDrawingSheetRequest', responseSchema: 'VastuDrawingSheetResponse', auth: 'apiKey', errors: [400, 401, 402, 403, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/create': { method: 'POST', requestSchema: 'VastuPropertiesCreateRequest', responseSchema: 'VastuPropertiesCreateResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/update': { method: 'POST', requestSchema: 'VastuPropertiesUpdateRequest', responseSchema: 'VastuPropertiesUpdateResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/collaboration/get': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationGetRequest', responseSchema: 'VastuPropertiesCollaborationGetResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/collaboration/invite': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationInviteRequest', responseSchema: 'VastuPropertiesCollaborationInviteResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 429, 503] },
+  'properties/collaboration/revoke': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationRevokeRequest', responseSchema: 'VastuPropertiesCollaborationRevokeResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/collaboration/members': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationMembersRequest', responseSchema: 'VastuPropertiesCollaborationMembersResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/collaboration/comment': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationCommentRequest', responseSchema: 'VastuPropertiesCollaborationCommentResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/collaboration/review': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationReviewRequest', responseSchema: 'VastuPropertiesCollaborationReviewResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/collaboration/update': { method: 'POST', requestSchema: 'VastuPropertiesCollaborationUpdateRequest', responseSchema: 'VastuPropertiesCollaborationUpdateResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/activity/list': { method: 'POST', requestSchema: 'VastuPropertiesActivityListRequest', responseSchema: 'VastuPropertiesActivityListResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/activity/export': { method: 'POST', requestSchema: 'VastuPropertiesActivityExportRequest', responseSchema: 'VastuPropertiesActivityExportResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/get': { method: 'POST', requestSchema: 'VastuPropertiesGetRequest', responseSchema: 'VastuPropertiesGetResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/list': { method: 'POST', requestSchema: 'VastuPropertiesListRequest', responseSchema: 'VastuPropertiesListResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/delete': { method: 'POST', requestSchema: 'VastuPropertiesDeleteRequest', responseSchema: 'VastuPropertiesDeleteResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'properties/link-scan': { method: 'POST', requestSchema: 'VastuPropertiesLinkScanRequest', responseSchema: 'VastuPropertiesLinkScanResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'archive/tier': { method: 'POST', requestSchema: 'VastuArchiveTierRequest', responseSchema: 'VastuArchiveTierResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'archive/export': { method: 'POST', requestSchema: 'VastuArchiveExportRequest', responseSchema: 'VastuArchiveExportResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'archive/delete': { method: 'POST', requestSchema: 'VastuArchiveDeleteRequest', responseSchema: 'VastuArchiveDeleteResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'archive/summary': { method: 'POST', requestSchema: 'VastuArchiveSummaryRequest', responseSchema: 'VastuArchiveSummaryResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+  'feed/listings': { method: 'POST', requestSchema: 'VastuFeedListingsRequest', responseSchema: 'VastuFeedListingsResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 503] },
+  'quote/calculate': { method: 'POST', requestSchema: 'VastuQuoteCalculateRequest', responseSchema: 'VastuQuoteCalculateResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 409, 410, 413, 415, 503] },
+
   'ar/heatmap-raster': { method: 'POST', requestSchema: 'VastuArHeatmapRasterRequest', responseSchema: 'VastuArHeatmapRasterResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'ar/anchor-recommendations': { method: 'POST', requestSchema: 'VastuArAnchorRecommendationsRequest', responseSchema: 'VastuArAnchorRecommendationsResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'ar/zone-textures': { method: 'POST', requestSchema: 'VastuArZoneTexturesRequest', responseSchema: 'VastuArZoneTexturesResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'ar/yantra-meshes': { method: 'POST', requestSchema: 'VastuArYantraMeshesRequest', responseSchema: 'VastuArYantraMeshesResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'ar/deity-icons': { method: 'POST', requestSchema: 'VastuArDeityIconsRequest', responseSchema: 'VastuArDeityIconsResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'ar/room-capture': { method: 'POST', requestSchema: 'VastuArRoomCaptureRequest', responseSchema: 'VastuArRoomCaptureResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
+  'ar/capture-merge': { method: 'POST', requestSchema: 'VastuArCaptureMergeRequest', responseSchema: 'VastuArCaptureMergeResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'plot/from-survey': { method: 'POST', requestSchema: 'VastuPlotFromSurveyRequest', responseSchema: 'VastuPlotFromSurveyResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'ar/room-capture': { method: 'POST', requestSchema: 'VastuArRoomCaptureRequest', responseSchema: 'VastuArRoomCaptureResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'ar/attestation/challenge': { method: 'POST', requestSchema: 'VastuArAttestationChallengeRequest', responseSchema: 'VastuArAttestationChallengeResponse', auth: 'apiKey', errors: [400, 401, 405, 415, 503] },
   'scans/save': { method: 'POST', requestSchema: 'VastuScansSaveRequest', responseSchema: 'VastuScansSaveResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
   'scans/retrieve': { method: 'POST', requestSchema: 'VastuScansRetrieveRequest', responseSchema: 'VastuScansRetrieveResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
   'scans/list': { method: 'POST', requestSchema: 'VastuScansListRequest', responseSchema: 'VastuScansListResponse', auth: 'apiKey', errors: [400, 401, 402, 404, 405, 409, 410, 413, 415, 422, 503] },
@@ -220,7 +390,7 @@ const VASTU_OPERATION_CONTRACTS = {
   'audit/floor-plan': { method: 'POST', requestSchema: 'VastuAuditFloorPlanRequest', responseSchema: 'VastuAuditFloorPlanResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 429, 500] },
   'audit/floor-plan-detailed': { method: 'POST', requestSchema: 'VastuAuditFloorPlanDetailedRequest', responseSchema: 'VastuAuditFloorPlanDetailedResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'audit/single-room': { method: 'POST', requestSchema: 'VastuAuditSingleRoomRequest', responseSchema: 'VastuAuditSingleRoomResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'ar/scan-quality': { method: 'POST', requestSchema: 'VastuArScanQualityRequest', responseSchema: 'VastuArScanQualityResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
+  'ar/scan-quality': { method: 'POST', requestSchema: 'VastuArScanQualityRequest', responseSchema: 'VastuArScanQualityResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
   'mandala/project/9-zone': { method: 'POST', requestSchema: 'VastuMandalaProject9ZoneRequest', responseSchema: 'VastuMandalaProject9ZoneResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'mandala/project/81-pada': { method: 'POST', requestSchema: 'VastuMandalaProject81PadaRequest', responseSchema: 'VastuMandalaProject81PadaResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'mandala/project/brahmasthan': { method: 'POST', requestSchema: 'VastuMandalaProjectBrahmasthanRequest', responseSchema: 'VastuMandalaProjectBrahmasthanResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
@@ -263,9 +433,9 @@ const VASTU_OPERATION_CONTRACTS = {
   'elements/distribution': { method: 'POST', requestSchema: 'VastuElementsDistributionRequest', responseSchema: 'VastuElementsDistributionResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'elements/balance-suggest': { method: 'POST', requestSchema: 'VastuElementsBalanceSuggestRequest', responseSchema: 'VastuElementsBalanceSuggestResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'direction/auspicious-facing': { method: 'POST', requestSchema: 'VastuDirectionAuspiciousFacingRequest', responseSchema: 'VastuDirectionAuspiciousFacingResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'score/overall': { method: 'POST', requestSchema: 'VastuScoreOverallRequest', responseSchema: 'VastuScoreOverallResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'score/zone-wise': { method: 'POST', requestSchema: 'VastuScoreZoneWiseRequest', responseSchema: 'VastuScoreZoneWiseResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'score/compliance-index': { method: 'POST', requestSchema: 'VastuScoreComplianceIndexRequest', responseSchema: 'VastuScoreComplianceIndexResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
+  'score/overall': { method: 'POST', requestSchema: 'VastuScoreOverallRequest', responseSchema: 'VastuScoreOverallResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'score/zone-wise': { method: 'POST', requestSchema: 'VastuScoreZoneWiseRequest', responseSchema: 'VastuScoreZoneWiseResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'score/compliance-index': { method: 'POST', requestSchema: 'VastuScoreComplianceIndexRequest', responseSchema: 'VastuScoreComplianceIndexResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
   'multi-storey/floor-rules': { method: 'POST', requestSchema: 'VastuMultiStoreyFloorRulesRequest', responseSchema: 'VastuMultiStoreyFloorRulesResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'compound/wall-analysis': { method: 'POST', requestSchema: 'VastuCompoundWallAnalysisRequest', responseSchema: 'VastuCompoundWallAnalysisResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'floor/level-analysis': { method: 'POST', requestSchema: 'VastuFloorLevelAnalysisRequest', responseSchema: 'VastuFloorLevelAnalysisResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
@@ -280,7 +450,14 @@ const VASTU_OPERATION_CONTRACTS = {
   'timing/grihapravesh': { method: 'POST', requestSchema: 'VastuTimingGrihapraveshRequest', responseSchema: 'VastuTimingGrihapraveshResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'timing/construction-start': { method: 'POST', requestSchema: 'VastuTimingConstructionStartRequest', responseSchema: 'VastuTimingConstructionStartResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'timing/vastu-shanti': { method: 'POST', requestSchema: 'VastuTimingVastuShantiRequest', responseSchema: 'VastuTimingVastuShantiResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'plan/analyze': { method: 'POST', requestSchema: 'VastuPlanAnalyzeRequest', responseSchema: 'VastuPlanAnalyzeResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
+  'plan/analyze': { method: 'POST', requestSchema: 'VastuPlanAnalyzeRequest', responseSchema: 'VastuPlanAnalyzeResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'plan/import-dxf': { method: 'POST', requestSchema: 'VastuPlanImportDxfRequest', responseSchema: 'VastuPlanImportDxfResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'plan/export-dxf': { method: 'POST', requestSchema: 'VastuPlanExportDxfRequest', responseSchema: 'VastuPlanExportDxfResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'plan/export-ifc': { method: 'POST', requestSchema: 'VastuPlanExportIfcRequest', responseSchema: 'VastuPlanExportIfcResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'plan/convert-units': { method: 'POST', requestSchema: 'VastuPlanConvertUnitsRequest', responseSchema: 'VastuPlanConvertUnitsResponse', auth: 'apiKey', errors: [400, 401, 405, 415, 500, 503] },
+  'plan/import-ifc': { method: 'POST', requestSchema: 'VastuPlanImportIfcRequest', responseSchema: 'VastuPlanImportIfcResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
+  'plan/import-image': { method: 'POST', requestSchema: 'VastuPlanImportImageRequest', responseSchema: 'VastuPlanImportImageResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 413, 415, 422, 500, 503] },
+  'plan/import-pdf': { method: 'POST', requestSchema: 'VastuPlanImportPdfRequest', responseSchema: 'VastuPlanImportPdfResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 413, 415, 422, 500, 503] },
   'plan/upload': { method: 'POST', requestSchema: 'VastuPlanUploadRequest', responseSchema: 'VastuPlanUploadResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'plan/report': { method: 'POST', requestSchema: 'VastuPlanReportRequest', responseSchema: 'VastuPlanReportResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'plan/generate': { method: 'POST', requestSchema: 'VastuPlanGenerateRequest', responseSchema: 'VastuPlanGenerateResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
@@ -291,8 +468,12 @@ const VASTU_OPERATION_CONTRACTS = {
   'entrance/obstruction-check': { method: 'POST', requestSchema: 'VastuEntranceObstructionCheckRequest', responseSchema: 'VastuEntranceObstructionCheckResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'direction/sun-path': { method: 'POST', requestSchema: 'VastuDirectionSunPathRequest', responseSchema: 'VastuDirectionSunPathResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
   'ar/true-north-calibrate': { method: 'POST', requestSchema: 'VastuArTrueNorthCalibrateRequest', responseSchema: 'VastuArTrueNorthCalibrateResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
-  'assessments': { method: 'POST', requestSchema: 'VastuAssessmentsRequest', responseSchema: 'VastuAssessmentsResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
+  'assessments': { method: 'POST', requestSchema: 'VastuAssessmentsRequest', responseSchema: 'VastuAssessmentsResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500, 503] },
   'assessments/batch': { method: 'POST', requestSchema: 'VastuAssessmentsBatchRequest', responseSchema: 'VastuAssessmentsBatchResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 415, 500] },
+  'jobs': { method: 'POST', requestSchema: 'VastuJobsRequest', responseSchema: 'VastuJobsResponse', auth: 'apiKey', errors: [400, 401, 402, 405, 409, 415, 429, 503] },
+  'jobs/{id}': { method: 'GET', requestSchema: null, responseSchema: 'VastuJobsIdResponse', auth: 'apiKey', errors: [401, 404, 405, 503] },
+  'jobs/{id}/results': { method: 'GET', requestSchema: null, responseSchema: 'VastuJobsIdResultsResponse', auth: 'apiKey', errors: [400, 401, 404, 405, 410, 503] },
+  'jobs/{id}/cancel': { method: 'POST', requestSchema: null, responseSchema: 'VastuJobsIdCancelResponse', auth: 'apiKey', errors: [401, 404, 405, 415, 503] },
 } as const satisfies Record<VastuOperation, {
   method: 'GET' | 'POST' | 'GET_OR_POST';
   requestSchema: string | null;
@@ -344,6 +525,24 @@ function assertSafeBaseUrl(baseUrl: string): URL {
   );
 }
 
+/** HTTP verbs `VedikaClient.request` accepts. */
+export type VedikaHttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/** Options for `VedikaClient.request`, `get` and `post`. */
+export interface VedikaRequestOptions {
+  /** JSON request body (POST/PUT/PATCH). */
+  body?: unknown;
+  /** Query-string parameters. */
+  query?: Record<string, unknown>;
+  /**
+   * A caller-retained retry key, sent as `Idempotency-Key`. Pass one only for
+   * an operation the API certifies for idempotency (its OpenAPI entry lists
+   * `Idempotency-Key` or `X-Idempotency-Key`). Elsewhere the API answers 422
+   * IDEMPOTENCY_NOT_SUPPORTED; the client then resends once without the key.
+   */
+  idempotencyKey?: string;
+}
+
 export class VedikaClient {
   /** One entry per mounted logical route; both public URL aliases share it. */
   static readonly VASTU_OPERATIONS = VASTU_OPERATIONS;
@@ -353,6 +552,8 @@ export class VedikaClient {
   private defaultLanguage: string;
   /** Maximum automatic retries for safe (idempotent) requests. 0 disables retry. */
   private maxRetries: number;
+  /** `method path` pairs the server refused with IDEMPOTENCY_NOT_SUPPORTED: never keyed again. */
+  private idempotencyUnsupported = new Set<string>();
 
   /**
    * Create a new Vedika API client
@@ -388,30 +589,17 @@ export class VedikaClient {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
         'X-API-Key': this.apiKey,  // DEPRECATED — remove after 2026-10-20
-        'User-Agent': 'vedika-javascript-sdk/3.0.10',
+        'User-Agent': 'vedika-javascript-sdk/3.1.1',
       },
-      // Credential-routing hardening, NODE TRANSPORT ONLY. axios strips
-      // its default sensitive headers (incl. Authorization) on a cross-origin
-      // redirect but forwards the legacy X-API-Key to the redirect destination
-      // — leaking the key. Strip BOTH auth headers on any redirect that leaves
-      // the current origin or downgrades HTTPS->HTTP (same-origin redirects keep
-      // them). beforeRedirect only runs in Node; the browser XHR/fetch adapter
-      // follows redirects opaquely and cannot be intercepted here, so browser
-      // callers should keep keys server-side behind their own proxy.
-      beforeRedirect: (opts: Record<string, any>, _res: unknown, req?: { url?: string }) => {
-        let sameOrigin = false;
-        try {
-          sameOrigin = !!req?.url && new URL(req.url).origin === new URL(opts.href).origin;
-        } catch {
-          sameOrigin = false;
-        }
-        if (!sameOrigin && opts.headers) {
-          for (const name of Object.keys(opts.headers)) {
-            const lower = name.toLowerCase();
-            if (lower === 'authorization' || lower === 'x-api-key') delete opts.headers[name];
-          }
-        }
-      },
+      // Credential-routing hardening, NODE TRANSPORT ONLY: no redirect is
+      // ever followed. Stripping auth headers is not enough, because a 307 or
+      // 308 resends the private request body (and the retained Idempotency-Key)
+      // to the redirect target. With maxRedirects 0 a 3xx comes back as an
+      // error response that handleError turns into a VedikaAPIError, and no
+      // second request is sent. The browser XHR/fetch adapter follows redirects
+      // opaquely and cannot be intercepted here, so browser callers should keep
+      // keys server-side behind their own proxy.
+      maxRedirects: 0,
     });
 
     // The constructor check alone is not the invariant. axios ignores `baseURL`
@@ -441,18 +629,24 @@ export class VedikaClient {
       return config;
     });
 
-    // Attach a client idempotency key to every mutating request (POST/PUT/PATCH/
-    // DELETE) and billed Vastu GET that doesn't already carry one. The server
-    // dedupes a retried charge on this header, including reference-table GETs
-    // (see the API idempotency contract, which accepts
-    // `Idempotency-Key` / `X-Idempotency-Key` / `X-Request-Id`). The SAME config
-    // object is reused across retries (see `this.client.request(config)` below),
-    // so the key stays identical for every attempt of one logical call.
+    // Attach a client idempotency key ONLY where the API accepts one: the
+    // operations certified in idempotency-policy.ts, the Vastu family, and
+    // billed Vastu GETs. Anywhere else on /v2 a key (or an X-Request-Id) is
+    // answered 422 IDEMPOTENCY_NOT_SUPPORTED, so a blanket key on every POST
+    // broke most calculator calls. A key the caller already set is never
+    // replaced. The SAME config object is reused across retries (see
+    // `this.client.request(config)` below), so the key stays identical for
+    // every attempt of one logical call.
     this.client.interceptors.request.use((config) => {
-      if ((isMutatingMethod(config.method) || isBilledVastuGet(config.method, config.url)) &&
-          !hasIdempotencyHeader(config.headers as any)) {
+      if (hasIdempotencyHeader(config.headers as any) || usesBodyIdentity(config.url)) return config;
+      const method = (config.method || 'get').toLowerCase();
+      const pathname = new URL(config.url || '', 'https://api.vedika.io').pathname;
+      if (this.idempotencyUnsupported.has(`${method} ${pathname}`)) return config;
+      const certified = certifiedIdempotencyHeaders(method, pathname);
+      if (certified || isVastuMutation(method, config.url) || isBilledVastuGet(method, config.url)) {
         config.headers = config.headers || ({} as any);
-        (config.headers as any)['Idempotency-Key'] = generateIdempotencyKey();
+        const key = generateIdempotencyKey();
+        for (const name of certified ?? ['Idempotency-Key']) (config.headers as any)[name] = key;
       }
       return config;
     });
@@ -499,24 +693,68 @@ export class VedikaClient {
         // refusal three times and then report it as a generic VedikaAPIError.
         // Anything already typed is final — surface it unchanged.
         if (error instanceof VedikaAPIError) throw error;
-        // maxRetries: retry BEFORE converting to a typed
-        // exception — once handleError throws, the axios config is gone.
-        // Only retries requests that are either naturally idempotent (GET) or
-        // carry the idempotency key attached above, so a retried POST can
-        // never double-charge. Streaming/arraybuffer requests are excluded
-        // (askQuestionStream, askVoice) since their body can't be re-sent.
         const config: any = error.config;
-        if (this.maxRetries > 0 && isRetryableRequest(config) && isRetryableError(error)) {
-          config.__retryCount = (config.__retryCount || 0) + 1;
-          if (config.__retryCount <= this.maxRetries) {
-            const delayMs = Math.min(1000 * 2 ** (config.__retryCount - 1), 8000);
-            await this.sleep(delayMs);
-            return this.client.request(config);
-          }
+        const status = error.response?.status;
+        const body = error.response ? await readErrorBody(error.response.data) : undefined;
+
+        // 422 IDEMPOTENCY_NOT_SUPPORTED: this endpoint is not certified for a
+        // key, and the server says "no charge was attempted". Resend ONCE
+        // without the key, and remember the route so it is never keyed again.
+        if (status === 422 && body?.code === 'IDEMPOTENCY_NOT_SUPPORTED' && config &&
+            !config.__idempotencyStripped && hasIdempotencyHeader(config.headers) && isReplayableTransport(config)) {
+          const pathname = new URL(config.url || '', 'https://api.vedika.io').pathname;
+          this.idempotencyUnsupported.add(`${(config.method || 'get').toLowerCase()} ${pathname}`);
+          stripIdempotencyHeaders(config.headers);
+          config.__idempotencyStripped = true;
+          return this.client.request(config);
         }
-        return this.handleError(error);
+
+        // maxRetries: retry BEFORE converting to a typed exception — once
+        // handleError throws, the axios config is gone.
+        const decision = this.retryDecision(error, config, body);
+        if (decision !== undefined) {
+          config.__retryCount = (config.__retryCount || 0) + 1;
+          await this.sleep(decision);
+          return this.client.request(config);
+        }
+        return this.handleError(error, body);
       }
     );
+  }
+
+  /**
+   * Decide whether to retry a failed request. Returns the delay in ms, or
+   * `undefined` for "do not retry".
+   *
+   * 402 (money) and 401 (key) are never retried. A 429 is judged by the JSON
+   * body `code`, never by the rate-limit headers: those describe the per-minute
+   * limiter while the daily limiter may be the one that refused.
+   */
+  private retryDecision(error: AxiosError, config: any, body: Record<string, any> | undefined): number | undefined {
+    if (this.maxRetries <= 0 || !config || !isReplayableTransport(config)) return undefined;
+    const attempt = (config.__retryCount || 0) + 1;
+    if (attempt > this.maxRetries) return undefined;
+    const backoff = Math.min(1000 * 2 ** (attempt - 1), 8000);
+    const response = error.response;
+
+    if (!response) {
+      // Network error / timeout: the request may or may not have landed.
+      return isRetryableRequest(config) ? backoff : undefined;
+    }
+    if (response.status === 429) {
+      const code = typeof body?.code === 'string' ? body.code : undefined;
+      if (code && NON_RETRYABLE_429_CODES.has(code)) return undefined;
+      // A limiter refusal happens before any charge, so an unkeyed POST may be
+      // resent only when the server names the per-minute limiter explicitly.
+      if (!isRetryableRequest(config) && code !== 'RATE_LIMIT_EXCEEDED') return undefined;
+      const wait = retryAfterSeconds(body, response.headers);
+      if (wait === undefined) return backoff;
+      return wait * 1000 > MAX_RETRY_AFTER_MS ? undefined : Math.max(wait * 1000, 0);
+    }
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      return isRetryableRequest(config) ? backoff : undefined;
+    }
+    return undefined;
   }
 
   /** Delay helper for retry backoff — overridable in tests. */
@@ -527,36 +765,67 @@ export class VedikaClient {
   /**
    * Handle API errors and convert to appropriate exception types
    */
-  private handleError(error: AxiosError): never {
+  private handleError(error: AxiosError, parsedBody?: Record<string, any>): never {
     if (error.response) {
       const status = error.response.status;
-      const data: any = error.response.data;
-      const message = data?.message || error.message;
+      const data: Record<string, any> | undefined = parsedBody;
+      const code = typeof data?.code === 'string' ? data.code : undefined;
+      const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined);
+      const message = text(data?.message) || text(data?.error) || error.message;
+      const details = { ...(code !== undefined && { code }), ...(data !== undefined && { body: data }) };
+
+      if (status >= 300 && status < 400) {
+        throw new VedikaAPIError(
+          `Unexpected redirect (HTTP ${status}) not followed; credentials and the request body were not forwarded. Check baseUrl.`,
+          status
+        );
+      }
 
       switch (status) {
         case 401:
-          throw new AuthenticationError(message);
-        case 402:
+          throw new AuthenticationError(message, details);
+        case 402: {
           // Branch on server code field to
           // distinguish expired subscription from genuine wallet underrun.
           // Server emits SUBSCRIPTION_EXPIRED when billing period ended
-          if (data?.code === 'SUBSCRIPTION_EXPIRED') {
-            throw new SubscriptionExpiredError(message);
+          if (code === 'SUBSCRIPTION_EXPIRED') {
+            throw new SubscriptionExpiredError(message, details);
           }
-          throw new InsufficientCreditsError(message);
+          // INSUFFICIENT_BALANCE / _PRECHECK / _RESERVATION carry wallet.{required,available,deficit} (USD).
+          const wallet = data && typeof data.wallet === 'object' && data.wallet ? data.wallet : {};
+          const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+          throw new InsufficientCreditsError(message, {
+            ...details,
+            required: num(wallet.required),
+            available: num(wallet.available),
+            deficit: num(wallet.deficit),
+            purchaseUrl: text(data?.purchaseUrl),
+          });
+        }
         case 408:
-          throw new TimeoutError(message);
+          throw new TimeoutError(message, details);
         case 422:
-          throw new ValidationError(message);
-        case 429:
-          throw new RateLimitError(message);
+          throw new ValidationError(message, details);
+        case 429: {
+          const retryAfter = retryAfterSeconds(data, error.response.headers);
+          const limits = data && typeof data.limits === 'object' && data.limits ? data.limits : undefined;
+          const rate = { ...details, retryAfter, limits };
+          if (code === 'DAILY_LIMIT_EXCEEDED') {
+            throw new DailyLimitExceededError(message, {
+              ...rate,
+              upgradeUrl: text(data?.upgradeUrl),
+              usage: data && typeof data.usage === 'object' && data.usage ? data.usage : undefined,
+            });
+          }
+          throw new RateLimitError(message, rate);
+        }
         case 500:
         case 502:
         case 503:
         case 504:
-          throw new ServerError(message, status);
+          throw new ServerError(message, status, details);
         default:
-          throw new VedikaAPIError(`HTTP ${status}: ${message}`, status);
+          throw new VedikaAPIError(`HTTP ${status}: ${message}`, status, details);
       }
     } else if (error.code === 'ECONNABORTED') {
       throw new TimeoutError('Request timed out. For complex queries, try increasing timeout.');
@@ -624,13 +893,22 @@ export class VedikaClient {
    * ```
    */
   async askVastuReport(query: VastuReportQuestion): Promise<QuestionResponse & { conversationId?: string }> {
-    if (query.report === undefined && !query.conversationId) {
-      throw new ValidationError('askVastuReport needs a report or a conversationId that already holds one');
+    if (query.report !== undefined && query.reportRef !== undefined) {
+      throw new ValidationError('askVastuReport takes exactly one of report or reportRef, not both');
+    }
+    if (query.reportRef !== undefined &&
+        (query.reportRef === null || typeof query.reportRef !== 'object' || query.reportRef.type !== 'upload' ||
+         typeof query.reportRef.id !== 'string' || !/^vup_[0-9a-f]{32}$/.test(query.reportRef.id))) {
+      throw new ValidationError('reportRef must be { type: "upload", id: "vup_..." } from uploadVastuReport');
+    }
+    if (query.report === undefined && query.reportRef === undefined && !query.conversationId) {
+      throw new ValidationError('askVastuReport needs a report, a reportRef or a conversationId that already holds one');
     }
     const response = await this.client.post<QuestionResponse & { conversationId?: string }>('/api/v1/astrology/query', {
       question: query.question,
       language: query.language || this.defaultLanguage,
       ...(query.report !== undefined && { vastuContext: { report: query.report } }),
+      ...(query.reportRef !== undefined && { vastuContext: { reportRef: { type: query.reportRef.type, id: query.reportRef.id } } }),
       ...(query.conversationId && { conversationId: query.conversationId }),
       ...(query.speed && { speed: query.speed }),
     });
@@ -964,7 +1242,7 @@ export class VedikaClient {
   }
 
   // ═══════════════════════════════════════════
-  // Vastu (82 logical operations, mounted under two public aliases)
+  // Vastu (101 logical operations, mounted under two public aliases)
   //
   // Vastu takes a BUILDING (plot polygon, rooms, compass zone), never a
   // birth chart. Real paths are verified against the Rust-owned 82-operation
@@ -984,6 +1262,11 @@ export class VedikaClient {
    */
   async vastu(op: string, params: Record<string, unknown>, options?: VastuCallOptions): Promise<VastuOperationResult> {
     const path = stripLeadingSlash(op);
+    if (path.startsWith('jobs/')) {
+      const jobPath = VASTU_JOB_ID_PATH.exec(path);
+      if (!jobPath) throw new ValidationError('Job paths are jobs/{jobId}, jobs/{jobId}/results and jobs/{jobId}/cancel');
+      assertVastuJobId(jobPath[1]);
+    }
     const config = vastuCallConfig(path, options);
     const response = isVastuGetOp(path)
       ? await this.client.get(`/v2/astrology/vastu/${path}`, { params, ...config })
@@ -994,11 +1277,14 @@ export class VedikaClient {
   }
 
   /** Closed, typed Vastu surface. Batch calls require a retained caller key. */
-  async vastuOperation<Operation extends VastuOperation>(
+  async vastuOperation<Operation extends Exclude<VastuOperation, VastuJobIdOperation>>(
     operation: Operation,
     params: VastuOperationContracts[Operation]['request'],
     options?: VastuCallOptions
   ): Promise<VastuOperationContracts[Operation]['response']> {
+    if (/\{id\}/.test(operation)) {
+      throw new ValidationError(`${operation} carries a job id; use vastuJobStatus, vastuJobResults or vastuJobCancel`);
+    }
     const payload = (params ?? {}) as object;
     const config = vastuCallConfig(operation, options);
     const response = isVastuGetOp(operation)
@@ -1030,20 +1316,18 @@ export class VedikaClient {
    */
   async vastuMandalaProject(
     scheme: VastuMandalaScheme | string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    options?: VastuCallOptions
   ): Promise<Record<string, unknown>> {
-    const response = await this.client.post(
-      `/v2/astrology/vastu/mandala/project/${stripLeadingSlash(scheme)}`,
-      params
-    );
-    return response.data;
+    return this.postVastu(`mandala/project/${stripLeadingSlash(scheme)}`, params, options);
   }
 
   /** Exact door-pada operation. Body requires `plotPolygon` and `doorXY`. */
   async vastuEntrancePada(
-    params: VastuOperationContracts['entrance/pada']['request']
+    params: VastuOperationContracts['entrance/pada']['request'],
+    options?: VastuCallOptions
   ): Promise<VastuOperationContracts['entrance/pada']['response']> {
-    return this.vastuOperation('entrance/pada', params);
+    return this.vastuOperation('entrance/pada', params, options);
   }
 
   /**
@@ -1068,9 +1352,10 @@ export class VedikaClient {
    * ```
    */
   async vastuArScanQuality(
-    params: VastuOperationContracts['ar/scan-quality']['request']
+    params: VastuOperationContracts['ar/scan-quality']['request'],
+    options?: VastuCallOptions
   ): Promise<VastuOperationContracts['ar/scan-quality']['response']> {
-    return this.vastuOperation('ar/scan-quality', params);
+    return this.vastuOperation('ar/scan-quality', params, options);
   }
 
   /**
@@ -1097,16 +1382,18 @@ export class VedikaClient {
    * ```
    */
   async vastuArTrueNorthCalibrate(
-    params: VastuOperationContracts['ar/true-north-calibrate']['request']
+    params: VastuOperationContracts['ar/true-north-calibrate']['request'],
+    options?: VastuCallOptions
   ): Promise<VastuOperationContracts['ar/true-north-calibrate']['response']> {
-    return this.vastuOperation('ar/true-north-calibrate', params);
+    return this.vastuOperation('ar/true-north-calibrate', params, options);
   }
 
   /** Exact entrance recommendation operation. Body requires `facing`. */
   async vastuEntranceRecommend(
-    params: VastuOperationContracts['entrance/recommend']['request']
+    params: VastuOperationContracts['entrance/recommend']['request'],
+    options?: VastuCallOptions
   ): Promise<VastuOperationContracts['entrance/recommend']['response']> {
-    return this.vastuOperation('entrance/recommend', params);
+    return this.vastuOperation('entrance/recommend', params, options);
   }
 
   /**
@@ -1116,25 +1403,19 @@ export class VedikaClient {
    */
   async vastuRoom(
     roomType: VastuRoomType | string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    options?: VastuCallOptions
   ): Promise<Record<string, unknown>> {
-    const response = await this.client.post(
-      `/v2/astrology/vastu/room/${stripLeadingSlash(roomType)}`,
-      params
-    );
-    return response.data;
+    return this.postVastu(`room/${stripLeadingSlash(roomType)}`, params, options);
   }
 
   /** Site-feature placement, e.g. `vastuPlacement('borewell', { zone: 'north-east' })`. */
   async vastuPlacement(
     feature: VastuPlacementFeature | string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    options?: VastuCallOptions
   ): Promise<Record<string, unknown>> {
-    const response = await this.client.post(
-      `/v2/astrology/vastu/placement/${stripLeadingSlash(feature)}`,
-      params
-    );
-    return response.data;
+    return this.postVastu(`placement/${stripLeadingSlash(feature)}`, params, options);
   }
 
   /**
@@ -1143,13 +1424,10 @@ export class VedikaClient {
    */
   async vastuAudit(
     kind: VastuAuditKind | string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    options?: VastuCallOptions
   ): Promise<VastuOperationResult> {
-    const response = await this.client.post(
-      `/v2/astrology/vastu/audit/${stripLeadingSlash(kind)}`,
-      params
-    );
-    return response.data;
+    return this.postVastu(`audit/${stripLeadingSlash(kind)}`, params, options);
   }
 
   /**
@@ -1166,42 +1444,310 @@ export class VedikaClient {
    * eligible, variant }`), `findings`, `grade`, and `confidenceBasis`. Check
    * `badgeEligibility.eligible` before displaying any badge to a buyer.
    */
-  async vastuListingAssessment(params: Record<string, unknown>): Promise<VastuOperationResult> {
-    const response = await this.client.post('/v2/astrology/vastu/assessments', params);
-    return response.data;
+  async vastuListingAssessment(
+    params: VastuAssessmentsRequest,
+    options?: VastuCallOptions
+  ): Promise<VastuAssessmentData & { __envelope?: VastuEnvelope }> {
+    return this.postVastu('assessments', params as unknown as Record<string, unknown>, options) as unknown as Promise<
+      VastuAssessmentData & { __envelope?: VastuEnvelope }
+    >;
   }
 
   /** Vastu score. `kind`: overall, zone-wise, compliance-index. */
   async vastuScore(
     kind: VastuScoreKind | string,
-    params: Record<string, unknown>
+    params: Record<string, unknown>,
+    options?: VastuCallOptions
   ): Promise<VastuOperationResult> {
-    const response = await this.client.post(
-      `/v2/astrology/vastu/score/${stripLeadingSlash(kind)}`,
-      params
-    );
-    return response.data;
+    return this.postVastu(`score/${stripLeadingSlash(kind)}`, params, options);
+  }
+
+  async vastuCompareVersions(params: VastuCompareVersionsRequest, options?: VastuCallOptions): Promise<VastuCompareVersionsResponse> {
+    return this.vastuOperation('plan/compare-versions', params, options);
+  }
+  async vastuVerifyReceipt(params: VastuReceiptVerifyRequest): Promise<VastuReceiptVerifyResponse> {
+    return this.vastuOperation('receipt/verify', params);
+  }
+  async vastuRuleVersions(): Promise<VastuRuleVersionsResponse> {
+    return this.vastuOperation('rules/versions', {});
+  }
+
+  /** Paid CAD operation; preserves units and stable source ids. */
+  async vastuPlanImportDxf(params: VastuOperationContracts['plan/import-dxf']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/import-dxf']['response']> {
+    return this.vastuOperation('plan/import-dxf', params, options);
+  }
+
+  /** Paid CAD operation; preserves units and stable source ids. */
+  async vastuPlanExportDxf(params: VastuOperationContracts['plan/export-dxf']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/export-dxf']['response']> {
+    return this.vastuOperation('plan/export-dxf', params, options);
+  }
+
+  async vastuPlanExportIfc(params: VastuOperationContracts['plan/export-ifc']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/export-ifc']['response']> {
+    return this.vastuOperation('plan/export-ifc', params, options);
+  }
+  async vastuPlanConvertUnits(params: VastuOperationContracts['plan/convert-units']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/convert-units']['response']> {
+    return this.vastuOperation('plan/convert-units', params, options);
+  }
+
+  /** Paid CAD operation; preserves units and stable source ids. */
+  async vastuPlanImportIfc(params: VastuOperationContracts['plan/import-ifc']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/import-ifc']['response']> {
+    return this.vastuOperation('plan/import-ifc', params, options);
   }
 
   /** Generate up to 3 ranked floor plans from a plot + room programme. */
   async vastuPlanGenerate(
-    params: VastuOperationContracts['plan/generate']['request']
+    params: VastuOperationContracts['plan/generate']['request'],
+    options?: VastuCallOptions
   ): Promise<VastuOperationContracts['plan/generate']['response']> {
-    return this.vastuOperation('plan/generate', params);
+    return this.vastuOperation('plan/generate', params, options);
   }
 
   /** Generate a floor plan from a high-level brief (BHK, bathrooms, parking, ...). */
   async vastuPlanFromRequirements(
-    params: VastuOperationContracts['plan/from-requirements']['request']
+    params: VastuOperationContracts['plan/from-requirements']['request'],
+    options?: VastuCallOptions
   ): Promise<VastuOperationContracts['plan/from-requirements']['response']> {
-    return this.vastuOperation('plan/from-requirements', params);
+    return this.vastuOperation('plan/from-requirements', params, options);
   }
 
   /** Magnetic declination (true-north correction) for a location. India grid. */
   async vastuDeclination(
-    options: VastuOperationContracts['direction/declination']['request']
+    options: VastuOperationContracts['direction/declination']['request'],
+    callOptions?: VastuCallOptions
   ): Promise<VastuOperationContracts['direction/declination']['response']> {
-    return this.vastuOperation('direction/declination', options);
+    return this.vastuOperation('direction/declination', options, callOptions);
+  }
+
+  /** POST to a Vastu path, forwarding a caller-retained Idempotency-Key when one is given. */
+  async vastuPortfolioSearch(params: VastuOperationContracts['portfolio/search']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/search']['response']> {
+    return this.vastuOperation('portfolio/search', params, options);
+  }
+  async vastuPortfolioCompare(params: VastuOperationContracts['portfolio/compare']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/compare']['response']> {
+    return this.vastuOperation('portfolio/compare', params, options);
+  }
+  async vastuPortfolioAnalytics(params: VastuOperationContracts['portfolio/analytics']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/analytics']['response']> {
+    return this.vastuOperation('portfolio/analytics', params, options);
+  }
+  async vastuPortfolioUsage(params: VastuOperationContracts['portfolio/usage']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/usage']['response']> {
+    return this.vastuOperation('portfolio/usage', params, options);
+  }
+  async vastuPortfolioUsageExport(params: VastuOperationContracts['portfolio/usage/export']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/usage/export']['response']> {
+    return this.vastuOperation('portfolio/usage/export', params, options);
+  }
+  async vastuPortfolioBudgetsSet(params: VastuOperationContracts['portfolio/budgets/set']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/budgets/set']['response']> {
+    return this.vastuOperation('portfolio/budgets/set', params, options);
+  }
+  async vastuPortfolioBudgetsGet(params: VastuOperationContracts['portfolio/budgets/get']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['portfolio/budgets/get']['response']> {
+    return this.vastuOperation('portfolio/budgets/get', params, options);
+  }
+  async vastuDrawingSheet(params: VastuDrawingSheetRequest, options?: VastuCallOptions): Promise<VastuOperationContracts['report/drawing-sheet']['response']> {
+    return this.vastuOperation('report/drawing-sheet', params, options);
+  }
+  async vastuWorkspace(operation: VastuWorkspaceOperation, params: VastuWorkspaceRequest = {}): Promise<VastuWorkspaceResponse> {
+    if (!['properties', 'jobs', 'get', 'list', 'reset', 'webhook', 'report'].includes(operation)) throw new Error('Unknown workspace operation');
+    const response = await this.client.post(`/sandbox/v2/vastu/workspace/${operation}`, params);
+    return (response.data?.__envelope ?? response.data) as VastuWorkspaceResponse;
+  }
+  async vastuPropertiesCreate(params: VastuOperationContracts['properties/create']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/create']['response']> {
+    return this.vastuOperation('properties/create', params, options);
+  }
+  async vastuPropertiesUpdate(params: VastuOperationContracts['properties/update']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/update']['response']> {
+    return this.vastuOperation('properties/update', params, options);
+  }
+  async vastuPropertiesCollaborationGet(params: VastuOperationContracts['properties/collaboration/get']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/get']['response']> {
+    return this.vastuOperation('properties/collaboration/get', params, options);
+  }
+  async vastuPropertiesCollaborationInvite(params: VastuOperationContracts['properties/collaboration/invite']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/invite']['response']> {
+    return this.vastuOperation('properties/collaboration/invite', params, options);
+  }
+  async vastuPropertiesCollaborationRevoke(params: VastuOperationContracts['properties/collaboration/revoke']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/revoke']['response']> {
+    return this.vastuOperation('properties/collaboration/revoke', params, options);
+  }
+  async vastuPropertiesCollaborationMembers(params: VastuOperationContracts['properties/collaboration/members']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/members']['response']> {
+    return this.vastuOperation('properties/collaboration/members', params, options);
+  }
+  async vastuPropertiesCollaborationComment(params: VastuOperationContracts['properties/collaboration/comment']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/comment']['response']> {
+    return this.vastuOperation('properties/collaboration/comment', params, options);
+  }
+  async vastuPropertiesCollaborationReview(params: VastuOperationContracts['properties/collaboration/review']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/review']['response']> {
+    return this.vastuOperation('properties/collaboration/review', params, options);
+  }
+  async vastuPropertiesCollaborationUpdate(params: VastuOperationContracts['properties/collaboration/update']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/collaboration/update']['response']> {
+    return this.vastuOperation('properties/collaboration/update', params, options);
+  }
+  async vastuPropertiesActivityList(params: VastuOperationContracts['properties/activity/list']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/activity/list']['response']> {
+    return this.vastuOperation('properties/activity/list', params, options);
+  }
+  async vastuPropertiesActivityExport(params: VastuOperationContracts['properties/activity/export']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/activity/export']['response']> {
+    return this.vastuOperation('properties/activity/export', params, options);
+  }
+  async vastuPropertiesGet(params: VastuOperationContracts['properties/get']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/get']['response']> {
+    return this.vastuOperation('properties/get', params, options);
+  }
+  async vastuPropertiesList(params: VastuOperationContracts['properties/list']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/list']['response']> {
+    return this.vastuOperation('properties/list', params, options);
+  }
+  async vastuPropertiesDelete(params: VastuOperationContracts['properties/delete']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/delete']['response']> {
+    return this.vastuOperation('properties/delete', params, options);
+  }
+  async vastuPropertiesLinkScan(params: VastuOperationContracts['properties/link-scan']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['properties/link-scan']['response']> {
+    return this.vastuOperation('properties/link-scan', params, options);
+  }
+  async vastuArchiveTier(params: VastuOperationContracts['archive/tier']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['archive/tier']['response']> {
+    return this.vastuOperation('archive/tier', params, options);
+  }
+  async vastuArchiveExport(params: VastuOperationContracts['archive/export']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['archive/export']['response']> {
+    return this.vastuOperation('archive/export', params, options);
+  }
+  async vastuArchiveDelete(params: VastuOperationContracts['archive/delete']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['archive/delete']['response']> {
+    return this.vastuOperation('archive/delete', params, options);
+  }
+  async vastuArchiveSummary(params: VastuOperationContracts['archive/summary']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['archive/summary']['response']> {
+    return this.vastuOperation('archive/summary', params, options);
+  }
+  async vastuFeedListings(params: VastuOperationContracts['feed/listings']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['feed/listings']['response']> {
+    return this.vastuOperation('feed/listings', params, options);
+  }
+  async vastuQuoteCalculate(params: VastuOperationContracts['quote/calculate']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['quote/calculate']['response']> {
+    return this.vastuOperation('quote/calculate', params, options);
+  }
+
+  async vastuRemediationTasksUpsert(params: VastuOperationContracts['remediation/tasks/upsert']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['remediation/tasks/upsert']['response']> {
+    return this.vastuOperation('remediation/tasks/upsert', params, options);
+  }
+  async vastuRemediationTasksList(params: VastuOperationContracts['remediation/tasks/list']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['remediation/tasks/list']['response']> {
+    return this.vastuOperation('remediation/tasks/list', params, options);
+  }
+  async vastuRemediationTasksDelete(params: VastuOperationContracts['remediation/tasks/delete']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['remediation/tasks/delete']['response']> {
+    return this.vastuOperation('remediation/tasks/delete', params, options);
+  }
+  async vastuRemediationReassess(params: VastuOperationContracts['remediation/reassess']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['remediation/reassess']['response']> {
+    return this.vastuOperation('remediation/reassess', params, options);
+  }
+  async vastuMerchantCatalogUpload(params: VastuOperationContracts['merchant/catalog/upload']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['merchant/catalog/upload']['response']> {
+    return this.vastuOperation('merchant/catalog/upload', params, options);
+  }
+  async vastuMerchantCatalogGet(params: VastuOperationContracts['merchant/catalog/get']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['merchant/catalog/get']['response']> {
+    return this.vastuOperation('merchant/catalog/get', params, options);
+  }
+  async vastuMerchantCatalogDelete(params: VastuOperationContracts['merchant/catalog/delete']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['merchant/catalog/delete']['response']> {
+    return this.vastuOperation('merchant/catalog/delete', params, options);
+  }
+  async vastuMerchantRemedies(params: VastuOperationContracts['merchant/remedies']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['merchant/remedies']['response']> {
+    return this.vastuOperation('merchant/remedies', params, options);
+  }
+
+  async vastuPlanImportImage(params: VastuOperationContracts['plan/import-image']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/import-image']['response']> {
+    return this.vastuOperation('plan/import-image', params, options);
+  }
+  async vastuPlanImportPdf(params: VastuOperationContracts['plan/import-pdf']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plan/import-pdf']['response']> {
+    return this.vastuOperation('plan/import-pdf', params, options);
+  }
+
+  async vastuCaptureMerge(params: VastuOperationContracts['ar/capture-merge']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['ar/capture-merge']['response']> {
+    return this.vastuOperation('ar/capture-merge', params, options);
+  }
+  async vastuFromSurvey(params: VastuOperationContracts['plot/from-survey']['request'], options?: VastuCallOptions): Promise<VastuOperationContracts['plot/from-survey']['response']> {
+    return this.vastuOperation('plot/from-survey', params, options);
+  }
+  private async postVastu(path: string, params: Record<string, unknown>, options?: VastuCallOptions): Promise<VastuOperationResult> {
+    const config = vastuCallConfig(path, options);
+    const url = `/v2/astrology/vastu/${path}`;
+    const response = config ? await this.client.post(url, params, config) : await this.client.post(url, params);
+    return response.data;
+  }
+
+  /**
+   * Queue 1 to 1,000 assessments and get a `jobId` back at once (202).
+   *
+   * The caller-retained `idempotencyKey` is mandatory. Store it with the
+   * request: after a lost response, resubmit the same body with the same key
+   * and you get the original job back (`replayed: true`) instead of a second
+   * paid job. A different body under the same key is refused with 409.
+   * Each item is charged only after it succeeds.
+   */
+  async vastuJobSubmit(request: VastuJobsRequest, options: { idempotencyKey: string }): Promise<VastuJobsResponse> {
+    return this.vastuOperation('jobs', request, options);
+  }
+
+  /** Status, per-state counts and billing of a job. Free. */
+  async vastuJobStatus(jobId: string): Promise<VastuJobsIdResponse> {
+    const response = await this.client.get(`/v2/astrology/vastu/jobs/${assertVastuJobId(jobId)}`);
+    return (response.data?.__envelope ?? response.data) as VastuJobsIdResponse;
+  }
+
+  /**
+   * One page (up to 50) of finished item results, in item order. Free.
+   * Cursor pagination only: pass the previous page's `nextCursor`; it is
+   * `null` on the last page. See {@link vastuJobResultItems} to walk them all.
+   */
+  async vastuJobResults(jobId: string, options?: VastuJobResultsOptions): Promise<VastuJobsIdResultsResponse> {
+    const cursor = options?.cursor;
+    if (cursor !== undefined && (typeof cursor !== 'string' || !cursor || cursor.length > 32)) {
+      throw new ValidationError('cursor must be the nextCursor of the previous page (1 to 32 characters)');
+    }
+    const response = await this.client.get(
+      `/v2/astrology/vastu/jobs/${assertVastuJobId(jobId)}/results`,
+      cursor === undefined ? undefined : { params: { cursor } }
+    );
+    return (response.data?.__envelope ?? response.data) as VastuJobsIdResultsResponse;
+  }
+
+  /** Every finished item of a job, following `nextCursor` until it is null. */
+  async *vastuJobResultItems(jobId: string): AsyncGenerator<VastuJobResultItem> {
+    let cursor: string | undefined;
+    for (;;) {
+      const page: VastuJobsIdResultsResponse = await this.vastuJobResults(jobId, cursor === undefined ? undefined : { cursor });
+      for (const item of page.data.results) yield item;
+      const next = page.data.nextCursor;
+      if (!next) return;
+      if (next === cursor) throw new ValidationError('The server returned the same results cursor twice');
+      cursor = next;
+    }
+  }
+
+  /** Stop a queued or running job. Items already charged stay charged; the rest are not run. Free. */
+  async vastuJobCancel(jobId: string): Promise<VastuJobsIdCancelResponse> {
+    const response = await this.client.post(`/v2/astrology/vastu/jobs/${assertVastuJobId(jobId)}/cancel`);
+    return (response.data?.__envelope ?? response.data) as VastuJobsIdCancelResponse;
+  }
+
+  /**
+   * Upload a report PDF (5 MiB, 40 pages, text layer) so questions can be
+   * asked about it with `askVastuReport({ reportRef })`. The upload is paid.
+   *
+   * `idempotencyKey` is mandatory and names this one file permanently: after a
+   * lost response, call again with the same key and the same file and the
+   * original upload comes back without a second charge. Use a new key for
+   * every new file. 1 to 256 visible ASCII characters.
+   */
+  async uploadVastuReport(file: VastuChatUploadFile, options: { idempotencyKey: string }): Promise<VastuChatUploadData> {
+    const key = options?.idempotencyKey;
+    if (typeof key !== 'string' || !VASTU_UPLOAD_KEY.test(key)) {
+      throw new ValidationError('A caller-retained Idempotency-Key of 1 to 256 visible ASCII characters is required');
+    }
+    const bytes = file.data instanceof ArrayBuffer ? new Uint8Array(file.data) : file.data;
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
+      throw new ValidationError('file.data must be the non-empty bytes of a PDF');
+    }
+    const filename = (file.filename || 'report.pdf').replace(/[\r\n"\\]/g, '_');
+    const boundary = `----vedika${generateIdempotencyKey().replace(/[^A-Za-z0-9]/g, '')}`;
+    // Plain Uint8Array concatenation, so this works in Node and in a browser.
+    const encoder = new TextEncoder();
+    const head = encoder.encode(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\n` +
+      'Content-Type: application/pdf\r\n\r\n'
+    );
+    const tail = encoder.encode(`\r\n--${boundary}--\r\n`);
+    const body = new Uint8Array(head.length + bytes.length + tail.length);
+    body.set(head, 0);
+    body.set(bytes, head.length);
+    body.set(tail, head.length + bytes.length);
+    const response = await this.client.post<VastuChatUploadData>('/api/v1/vastu/chat/uploads', body, {
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Idempotency-Key': key },
+      maxBodyLength: Infinity,
+    });
+    return response.data;
   }
 
   // ═══════════════════════════════════════════
@@ -1572,6 +2118,55 @@ export class VedikaClient {
     const response = await this.client.get('/api/v1/conversations',
       Object.keys(params).length ? { params } : undefined);
     return response.data;
+  }
+
+  /**
+   * Call any API operation by path, for the long tail the named methods do not
+   * cover. The path must start with a single `/` (for example
+   * `/v2/astrology/kundli`); the request always goes to this client's own
+   * origin with its credentials, and a full URL is refused.
+   *
+   * Returns the response payload with the `{ success, data }` envelope unwrapped,
+   * like the named methods; the original envelope (billing, meta) is on the
+   * non-enumerable `__envelope` property of an object result.
+   *
+   * @example
+   * ```typescript
+   * const kundli = await client.request('POST', '/v2/astrology/kundli', {
+   *   body: { datetime: '1990-06-15T14:30:00+05:30', latitude: 28.6139, longitude: 77.2090 },
+   * });
+   * ```
+   */
+  async request<T = any>(method: VedikaHttpMethod, path: string, options: VedikaRequestOptions = {}): Promise<T> {
+    const verb = String(method).toUpperCase();
+    if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(verb)) {
+      throw new ValidationError(`Unsupported HTTP method: ${String(method)}`);
+    }
+    if (typeof path !== 'string' || !/^\/(?!\/)/.test(path) || /[\\\s]|:\/\//.test(path)) {
+      throw new ValidationError('path must start with a single "/" and must not be a full URL, for example "/v2/astrology/kundli"');
+    }
+    const key = options.idempotencyKey;
+    if (key !== undefined && (typeof key !== 'string' || !key.trim())) {
+      throw new ValidationError('idempotencyKey must be a nonblank string');
+    }
+    const response = await this.client.request<T>({
+      method: verb,
+      url: path,
+      ...(options.query !== undefined && { params: options.query }),
+      ...(options.body !== undefined && { data: options.body }),
+      ...(key !== undefined && { headers: { 'Idempotency-Key': key } }),
+    });
+    return response.data;
+  }
+
+  /** GET any API path. See {@link VedikaClient.request}. */
+  async get<T = any>(path: string, query?: Record<string, unknown>): Promise<T> {
+    return this.request<T>('GET', path, query === undefined ? {} : { query });
+  }
+
+  /** POST any API path. See {@link VedikaClient.request}. */
+  async post<T = any>(path: string, body?: unknown, options: Omit<VedikaRequestOptions, 'body'> = {}): Promise<T> {
+    return this.request<T>('POST', path, { ...options, body });
   }
 
   /** Delete a conversation */

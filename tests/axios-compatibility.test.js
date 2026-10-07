@@ -70,28 +70,21 @@ test('sends auth and JSON once, unwraps V2, and keeps billing metadata non-enume
   expect(requests[0].headers['idempotency-key']).toBeTruthy();
 });
 
-test('preserves auth on same-origin redirects and strips it across origins', async () => {
+test('refuses redirects: same-origin and cross-origin get no second request', async () => {
   const seen = [];
   const destination = await serve((req, res) => {
     seen.push(req.headers);
     json(res, { success: true, data: { ok: true } });
   });
+  let originHits = 0;
   const base = await serve((req, res) => {
-    if (req.url === '/v2/astrology/panchang') {
-      res.writeHead(302, { Location: '/same' });
-      res.end();
-    } else {
-      seen.push(req.headers);
-      res.writeHead(302, { Location: `${destination}/other` });
-      res.end();
-    }
+    originHits += 1;
+    res.writeHead(302, { Location: req.url === '/v2/astrology/panchang' ? '/same' : `${destination}/other` });
+    res.end();
   });
-  await expect(client(base).getPanchang()).resolves.toEqual({ ok: true });
-  expect(seen).toHaveLength(2);
-  expect(seen[0].authorization).toBe(`Bearer ${apiKey}`);
-  expect(seen[0]['x-api-key']).toBe(apiKey);
-  expect(seen[1].authorization).toBeUndefined();
-  expect(seen[1]['x-api-key']).toBeUndefined();
+  await expect(client(base).getPanchang()).rejects.toThrow(/redirect/i);
+  expect(originHits).toBe(1);
+  expect(seen).toHaveLength(0);
 });
 
 test.each([

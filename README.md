@@ -365,9 +365,9 @@ const career = await client.career.analysis(birthInfo);
 console.log(`Best fields: ${career.suitableFields.join(', ')}`);
 ```
 
-### 🏠 Vastu Shastra (93 operation paths)
+### 🏠 Vastu Shastra (98 operation paths)
 
-Vastu takes a building: a plot polygon, room list, and compass zone. All 93 operation paths use `/v2/astrology/vastu/`. `vastuOperation()` and the typed named helpers return the full `{success, data, billing?, meta?}` response. Generic helpers such as `vastu()` and `vastuScore()` return the data payload.
+Vastu takes a building: a plot polygon, room list, and compass zone. All 98 operation paths use `/v2/astrology/vastu/`. `vastuOperation()` and the typed named helpers return the full `{success, data, billing?, meta?}` response. Generic helpers such as `vastu()` and `vastuScore()` return the data payload.
 
 ```typescript
 const rooms = [
@@ -412,6 +412,31 @@ const report = await client.vastuOperation('plan/report', {
 });
 console.log(report.data.artifact?.filename, report.data.artifact?.content);
 ```
+
+Large jobs and report questions:
+
+```typescript
+// Queue 1–1,000 assessments. The key is mandatory: store it with this exact
+// body and reuse it after a lost response to get the original job back
+// (replayed: true) instead of paying twice. Each item is charged after it succeeds.
+const submitted = await client.vastuJobSubmit(
+  { operation: 'assessments', items: [{ id: 'p1', input: { inputSource: 'plan-derived', rooms } }] },
+  { idempotencyKey: 'import-2026-10-01' },
+);
+const { jobId } = submitted.data;
+console.log((await client.vastuJobStatus(jobId)).data.counts);
+for await (const item of client.vastuJobResultItems(jobId)) console.log(item.id, item.status);
+await client.vastuJobCancel(jobId); // stops the items that have not run
+
+// Ask about a report PDF. The upload is paid; its key names this one file.
+const upload = await client.uploadVastuReport({ data: pdfBytes, filename: 'plan.pdf' }, { idempotencyKey: 'plan-upload-001' });
+const answer = await client.askVastuReport({
+  question: 'What should I fix first?',
+  reportRef: { type: 'upload', id: upload.uploadId },
+});
+```
+
+The named helpers (`vastuListingAssessment`, `vastuScore`, `vastuAudit`, `vastuRoom`, `vastuPlacement` and the rest) take `{ idempotencyKey }` as their last argument. Pass a key you saved when a retry may come from a new call.
 
 Each batch item uses the existing assessment price; there is no batch fee. Inspect every item status even when the batch succeeds. Scores are versioned conventions. Compare the same scoring version and equivalent room coverage. Detailed audits report missing input and do not certify physical survey completeness.
 
@@ -530,13 +555,43 @@ try {
   if (error.name === 'AuthenticationError') {
     console.error('Invalid API key');
   } else if (error.name === 'InsufficientCreditsError') {
-    console.error('Add more credits at https://vedika.io/dashboard.html');
+    // 402: wallet.required / available / deficit are USD amounts from the API.
+    console.error(`Short by $${error.deficit}. Top up at ${error.purchaseUrl}`);
+  } else if (error.name === 'DailyLimitExceededError') {
+    console.error(`Daily limit reached. Upgrade at ${error.upgradeUrl}`);
   } else if (error.name === 'RateLimitError') {
-    console.error('Rate limit exceeded, please wait');
+    console.error(`Rate limited, retry in ${error.retryAfter}s`);
   } else {
-    console.error('API error:', error.message);
+    console.error('API error:', error.code, error.message);
   }
 }
+```
+
+Every `VedikaAPIError` carries `statusCode`, the API's machine-readable `code` (for example `INSUFFICIENT_BALANCE`) and the parsed error `body`.
+
+### Retries and idempotency
+
+The client retries only when a repeat cannot charge you twice, and it reads the API's JSON error `code`, never the rate-limit headers.
+
+| Failure | Behaviour |
+|---------|-----------|
+| 402 `INSUFFICIENT_BALANCE` | Never retried. `InsufficientCreditsError` with `required`, `available`, `deficit`, `purchaseUrl`. |
+| 401 | Never retried. `AuthenticationError`. |
+| 429 `RATE_LIMIT_EXCEEDED` | Waits the body `retryAfter` (up to 30 s), then retries. A longer wait is raised as `RateLimitError` with `retryAfter`. |
+| 429 `DAILY_LIMIT_EXCEEDED` | Never retried. `DailyLimitExceededError`: the allowance is gone until tomorrow. |
+| 502 / 503 / 504 or a dropped connection | Retried for GETs and for requests that carry an idempotency key. A billed POST without a key is not retried. |
+| 422 `IDEMPOTENCY_NOT_SUPPORTED` | The endpoint takes no key. The request is resent once without it (no charge was attempted) and that route is not keyed again. |
+
+The API accepts an idempotency key only on certified operations (their OpenAPI entry lists `Idempotency-Key` or `X-Idempotency-Key`) and on the Vastu family. The client attaches a key by itself only there. Elsewhere it sends none: a key, or a custom `X-Request-Id`, on a calculator route is answered 422. To protect a call you retry yourself, pass your own key to a certified operation: `client.post('/v2/reports/prebuilt/generate', body, { idempotencyKey: 'order-123' })`.
+
+### Any other endpoint
+
+`client.request(method, path, { body, query, idempotencyKey })` (and the `get` / `post` shortcuts) calls any operation in the [OpenAPI document](https://api.vedika.io/openapi.json) with this client's key, retry and error rules. The path must start with a single `/`; a full URL is refused, so the key cannot be sent to another host.
+
+```javascript
+const kundli = await client.request('POST', '/v2/astrology/kundli', {
+  body: { datetime: '1990-06-15T14:30:00+05:30', latitude: 28.6139, longitude: 77.2090 },
+});
 ```
 
 ## 💰 Pricing
@@ -558,9 +613,8 @@ See full pricing: https://vedika.io/pricing.html
 ### Environment Variables
 
 ```bash
-# .env file
+# .env file (read it yourself and pass it as apiKey; the SDK does not read the environment)
 VEDIKA_API_KEY=vk_live_...
-VEDIKA_API_URL=https://api.vedika.io  # Optional
 ```
 
 ### Client Options
@@ -568,18 +622,17 @@ VEDIKA_API_URL=https://api.vedika.io  # Optional
 ```javascript
 const client = new VedikaClient({
   apiKey: 'vk_live_...',
-  baseUrl: 'https://api.vedika.io',  // Optional -- must be a Vedika origin (see below)
+  baseUrl: 'https://api.vedika.io',  // Optional -- only this origin or loopback (see below)
   timeout: 60000,  // Request timeout in milliseconds
-  maxRetries: 3,  // Retry failed requests
+  maxRetries: 3,  // Safe retries only (see Retries and idempotency)
   cacheEnabled: true,  // Enable prompt caching for cost savings
   language: 'en',  // Default language for responses
   allowInsecureHttp: false  // Legacy option; cannot enable custom origins or remote HTTP
 });
 ```
 
-`baseUrl` accepts a Vedika origin (`vedika.io` or a `*.vedika.io` subdomain) over
-HTTPS, or loopback (`localhost`, `127.0.0.1`, `::1`) for local development.
-Anything else throws immediately, because the client would otherwise send your
+`baseUrl` accepts `https://api.vedika.io` or loopback (`localhost`, `127.0.0.1`,
+`::1`) for local development, with no path. Anything else throws immediately, because the client would otherwise send your
 API key there. There is no opt-in that relaxes this: to route calls through your
 own gateway, proxy them server-side and keep the key on the server.
 
@@ -654,12 +707,13 @@ Make sure you're using a valid API key from https://vedika.io/dashboard.html
 Keys start with:
 - `vk_live_` for production
 - `vk_ent_` for enterprise accounts
+- `vk_sandbox_` for sandbox keys
 
-Keys that start with `vk_test_` are rejected. To test without a key, use the free sandbox at `https://api.vedika.io/sandbox/...`.
+The API rejects any other prefix, including `vk_test_`, with a 401. To test without a key, use the free sandbox at `https://api.vedika.io/sandbox/...`.
 
 ### "Insufficient Credits"
 
-Add credits to your account: https://vedika.io/dashboard.html
+Add credits to your account: https://vedika.io/dashboard.html. `error.required`, `error.available` and `error.deficit` give the USD amounts.
 
 ### "Request Timeout"
 
@@ -674,7 +728,7 @@ const client = new VedikaClient({
 
 ### "Rate Limit Exceeded"
 
-You're sending too many requests. Wait a moment or upgrade your plan.
+`RateLimitError` means too many requests in a minute: wait `error.retryAfter` seconds. `DailyLimitExceededError` means the plan's daily allowance is used up: upgrade or wait until tomorrow.
 
 ## 📊 Performance
 
@@ -685,7 +739,7 @@ You're sending too many requests. Wait a moment or upgrade your plan.
 ## 🔒 Security
 
 - ✅ API keys encrypted in transit (HTTPS)
-- ✅ **Credential-routing policy:** credentials may use only `https://api.vedika.io` on its default HTTPS port, or literal loopback HTTP (`localhost`, `127.x.x.x`, `::1`) for local development. Custom HTTPS origins and remote HTTP are rejected, even with the legacy insecure-HTTP flag. Redirect protection keeps keys off a different origin. Browser applications must keep the real key on their server and use their own app-session transport.
+- ✅ **Credential-routing policy:** credentials may use only `https://api.vedika.io` on its default HTTPS port, or literal loopback HTTP (`localhost`, `127.x.x.x`, `::1`) for local development. Custom HTTPS origins and remote HTTP are rejected, even with the legacy insecure-HTTP flag. Redirects are never followed (a 3xx raises an error and no second request is sent), so keys and request bodies stay on the approved origin. Browser applications must keep the real key on their server and use their own app-session transport.
 
 ## 📜 License
 

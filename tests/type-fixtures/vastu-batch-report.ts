@@ -7,8 +7,8 @@ const generate: VastuPlanGenerateRequest = { plot: { width: 40, length: 60 }, in
 const requirements: VastuPlanFromRequirementsRequest = { plot: { width: 40, length: 60 }, includeSvg: false };
 const optimize: VastuPlanOptimizeRequest = { rooms: [], includeSvg: false };
 const report: VastuPlanReportRequest = { rooms: [], format: 'html', brand: { reportTitle: 'Title', generatedFor: 'Buyer' }, reportTitle: 'Title', generatedFor: 'Buyer', tenantName: 'Tenant' };
-// @ts-expect-error Report artifacts support JSON and HTML; PDF is produced by printing HTML.
-const unsupported: VastuPlanReportRequest = { rooms: [], format: 'pdf' };
+// @ts-expect-error Unsupported artifact formats remain rejected.
+const unsupported: VastuPlanReportRequest = { rooms: [], format: 'exe' };
 
 async function checked(client: VedikaClient): Promise<void> {
   const north = await client.vastuOperation("ar/true-north-calibrate", calibration);
