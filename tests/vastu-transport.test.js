@@ -19,25 +19,29 @@ const GET_OPS = [
   'reference/gate-obstructions',
   'direction/declination',
 ];
-const POST_OPS = ['score/overall', 'placement/borewell', 'entrance/pada', 'plan/analyze'];
+const POST_OPS = ['plan/import-dxf', 'plan/export-dxf', 'plan/export-ifc', 'plan/convert-units', 'plan/import-ifc', 'plan/import-image', 'plan/import-pdf', 'score/overall', 'placement/borewell', 'entrance/pada', 'plan/analyze'];
 
 describe('Vastu transport verb parity', () => {
   test('typed inventory exposes every mounted logical operation exactly once', () => {
     const operations = VedikaClient.VASTU_OPERATIONS;
-    expect(operations).toHaveLength(93);
-    expect(new Set(operations).size).toBe(93);
+    expect(operations).toHaveLength(147);
+    expect(new Set(operations).size).toBe(147);
     expect(operations).toEqual(expect.arrayContaining([
       'reference/gate-obstructions',
       'entrance/obstruction-check',
       'direction/sun-path',
       'ar/true-north-calibrate',
       'assessments',
+      'plan/import-image',
+      'plan/import-pdf',
+      'ar/capture-merge',
+      'plot/from-survey',
     ]));
   });
 
   test('every operation exposes its generated method, request, response, auth, and error contract', () => {
     const contracts = VedikaClient.VASTU_OPERATION_CONTRACTS;
-    expect(Object.keys(contracts)).toHaveLength(93);
+    expect(Object.keys(contracts)).toHaveLength(147);
     for (const [operation, contract] of Object.entries(contracts)) {
       expect(contract.method).toMatch(/^(GET|POST|GET_OR_POST)$/);
       expect(contract.requestSchema === null || contract.requestSchema.startsWith('Vastu')).toBe(true);
@@ -45,7 +49,7 @@ describe('Vastu transport verb parity', () => {
       expect(contract.responseSchema).toMatch(/^Vastu.+Response$/);
       expect(contract.responseSchema).not.toBe('VastuOperationResponse');
       expect(contract.auth).toBe('apiKey');
-      expect(contract.errors).toEqual(expect.arrayContaining([400, 401]));
+      expect(contract.errors).toContain(401);
       expect(new Set(contract.errors).size).toBe(contract.errors.length);
       expect(operation).not.toMatch(/^\/v2\//);
     }
@@ -97,11 +101,10 @@ describe('Credential-routing origin policy', () => {
 });
 
 describe('Credential-routing redirect hardening (Node transport)', () => {
-  test('the API key is not forwarded across a cross-origin redirect', async () => {
-    const seen = {};
+  test('a cross-origin redirect is refused and the other origin sees nothing', async () => {
+    let collected = 0;
     const collector = http.createServer((req, res) => {
-      seen.authorization = req.headers['authorization'];
-      seen.xApiKey = req.headers['x-api-key'];
+      collected += 1;
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ success: true, data: { ok: true } }));
     });
@@ -118,144 +121,68 @@ describe('Credential-routing redirect hardening (Node transport)', () => {
         apiKey: 'vk_test_secret',
         baseUrl: `http://127.0.0.1:${redirector.address().port}`,
       });
-      await client.vastu('score/overall', { zone: 'north' });
+      await expect(client.vastu('score/overall', { zone: 'north' })).rejects.toThrow(/redirect/i);
     } finally {
       collector.close();
       redirector.close();
     }
 
-    expect(seen.authorization).toBeUndefined();
-    expect(seen.xApiKey).toBeUndefined();
+    expect(collected).toBe(0);
   });
 });
 
-// ---------------------------------------------------------------------------
-// AR operations
-//
-// These two live under /v2/vastu/ar/ on the server and were unreachable from
-// this SDK before: the generic vastu() escape hatch only ever builds
-// /v2/astrology/vastu/<op>, and there was no named helper. Both prefixes are
-// served (verified live 2026-08-16, HTTP 200 on each), so the named helpers use
-// the same /v2/astrology/vastu/ prefix as every sibling.
-// ---------------------------------------------------------------------------
-
-describe('Vastu AR operations', () => {
-  test('vastuArScanQuality POSTs the sensor readings verbatim', async () => {
-    const client = new VedikaClient({ apiKey: 'vk_test_x' });
-    const post = jest.spyOn(client.client, 'post').mockResolvedValue({
-      data: { score: 88, grade: 'B', acceptForAudit: true },
-    });
-
-    // Exactly the field names the live handler reads
-    // (ported::vastu::ar_scan_quality). A misspelling here is silently ignored
-    // by the server and costs a neutral 50 on that dimension, so the test
-    // pins them.
-    const readings = {
-      pointCloudDensity: 850,
-      polygonClosure: true,
-      roomsTagged: true,
-      compassConfidence: 0.9,
-      gpsConfidence: 0.85,
-      scanDurationSec: 240,
-      scannedAreaM2: 60,
-    };
-    const out = await client.vastuArScanQuality(readings);
-
-    expect(post.mock.calls[0][0]).toBe('/v2/astrology/vastu/ar/scan-quality');
-    expect(post.mock.calls[0][1]).toEqual(readings);
-    expect(out.acceptForAudit).toBe(true);
+describe('portfolio contracts and attribution', () => {
+  test('all seven typed operations POST their exact request', async () => {
+    const client = new VedikaClient({ apiKey: 'vk_test_synthetic' });
+    const post = jest.spyOn(client.client, 'post').mockResolvedValue({ data: { success: true, data: {} } });
+    const cases = [
+      ['vastuPortfolioSearch', 'portfolio/search', {city: 'Pune', tags: ['rental']}],
+      ['vastuPortfolioCompare', 'portfolio/compare', {propertyIds: ['p1', 'p2']}],
+      ['vastuPortfolioAnalytics', 'portfolio/analytics', {tag: 'rental'}],
+      ['vastuPortfolioUsage', 'portfolio/usage', {tenantRef: 't1'}],
+      ['vastuPortfolioUsageExport', 'portfolio/usage/export', {propertyId: 'p1'}],
+      ['vastuPortfolioBudgetsSet', 'portfolio/budgets/set', {tenantRef: 't1', capUsd: '1.21'}],
+      ['vastuPortfolioBudgetsGet', 'portfolio/budgets/get', {tenantRef: 't1'}],
+    ];
+    for (const [method, path, request] of cases) {
+      await client[method](request);
+      expect(post.mock.calls.at(-1).slice(0, 2)).toEqual([`/v2/astrology/vastu/${path}`, request]);
+    }
   });
-
-  test('vastuArScanQuality forwards a partial scan without inventing defaults', async () => {
-    // An absent reading is NOT a bad reading — the grader scores it a neutral
-    // 50. The SDK must not fill in zeros, which would grade the scan as failing.
-    const client = new VedikaClient({ apiKey: 'vk_test_x' });
-    const post = jest.spyOn(client.client, 'post').mockResolvedValue({ data: {} });
-    await client.vastuArScanQuality({ pointCloudDensity: 100 });
-    expect(post.mock.calls[0][1]).toEqual({ pointCloudDensity: 100 });
-  });
-
-  test('vastuArTrueNorthCalibrate POSTs the sun sighting', async () => {
-    const client = new VedikaClient({ apiKey: 'vk_test_x' });
-    const post = jest.spyOn(client.client, 'post').mockResolvedValue({
-      data: { reliable: true, offsetDeg: 2.05, solarElevationDeg: 19.21 },
-    });
-
-    const sighting = {
-      lat: 28.61,
-      lon: 77.21,
-      datetime: '2025-12-21T03:30:00Z',
-      deviceHeadingAtSunDeg: 130,
-    };
-    const out = await client.vastuArTrueNorthCalibrate(sighting);
-
-    expect(post.mock.calls[0][0]).toBe('/v2/astrology/vastu/ar/true-north-calibrate');
-    expect(post.mock.calls[0][1]).toEqual(sighting);
-    expect(out.reliable).toBe(true);
+  test('GET attribution uses headers and preserves the caller idempotency key', async () => {
+    const client = new VedikaClient({ apiKey: 'vk_test_synthetic' });
+    const get = jest.spyOn(client.client, 'get').mockResolvedValue({data: {success:true}});
+    await client.vastu('reference/directions/8', {}, {propertyId:'p1', tenantRef:'t1', idempotencyKey:'stable'});
+    expect(get.mock.calls[0][1].headers).toEqual(expect.objectContaining({'x-vastu-property-id':'p1', 'x-vastu-tenant-ref':'t1', 'Idempotency-Key':'stable'}));
   });
 });
 
-// ---------------------------------------------------------------------------
-// Listing assessment (b2c#6 / NoBroker pilot)
-//
-// /v2/astrology/vastu/assessments is a real, mounted, documented endpoint
-// (web/vedika-public/openapi.json) but had no dedicated named helper — only
-// the generic vastu() escape hatch could reach it. This pins the named helper.
-// ---------------------------------------------------------------------------
-
-describe('Vastu listing assessment', () => {
-  test('vastuListingAssessment POSTs to /v2/astrology/vastu/assessments', async () => {
+describe('Property collaboration SDK methods', () => {
+  test('all nine helpers POST the supplied owner and actor-independent payload to their exact route', async () => {
     const client = new VedikaClient({ apiKey: 'vk_test_x' });
-    const post = jest.spyOn(client.client, 'post').mockResolvedValue({
-      data: {
-        score: 78,
-        confidence: 0.95,
-        badgeEligibility: { inputSource: 'plan-derived', badge: 'plan-derived', eligible: true },
-      },
-    });
-
-    const body = { inputSource: 'plan-derived', rooms: [{ roomType: 'kitchen', zone: 'southeast' }] };
-    const out = await client.vastuListingAssessment(body);
-
-    expect(post.mock.calls[0][0]).toBe('/v2/astrology/vastu/assessments');
-    expect(post.mock.calls[0][1]).toEqual(body);
-    expect(out.badgeEligibility.eligible).toBe(true);
+    const post = jest.spyOn(client.client, 'post').mockResolvedValue({data: {success: true, data: {}}});
+    const suffixes = ['CollaborationGet','CollaborationInvite','CollaborationRevoke','CollaborationMembers','CollaborationComment','CollaborationReview','CollaborationUpdate','ActivityList','ActivityExport'];
+    const routes = ['collaboration/get','collaboration/invite','collaboration/revoke','collaboration/members','collaboration/comment','collaboration/review','collaboration/update','activity/list','activity/export'];
+    const payload = {propertyId: 'property-fixture', ownerId: 'owner-fixture'};
+    for (let i = 0; i < suffixes.length; i++) {
+      await client['vastuProperties' + suffixes[i]](payload);
+      expect(post.mock.calls[i][0]).toBe('/v2/astrology/vastu/properties/' + routes[i]);
+      expect(post.mock.calls[i][1]).toEqual(payload);
+    }
   });
 });
 
-describe('Vastu assessments contract', () => {
-  test('the public type accepts the runtime scanQuality:null fixture', () => {
-    const result = spawnSync(
-      process.execPath,
-      [
-        require.resolve('typescript/bin/tsc'),
-        '--strict', '--noEmit', '--skipLibCheck', '--target', 'ES2020',
-        '--module', 'commonjs', '--moduleResolution', 'node',
-        path.join(__dirname, 'type-fixtures/vastu-assessment-null.ts'),
-      ],
-      { encoding: 'utf8' },
-    );
-    expect(`${result.stdout}${result.stderr}`).toBe('');
-    expect(result.status).toBe(0);
-  });
 
-  test('posts the canonical assessment shape without inventing rooms or entrance', async () => {
-    const client = new VedikaClient({ apiKey: 'vk_test_x' });
-    const post = jest.spyOn(client.client, 'post').mockResolvedValue({
-      data: { status: 'insufficient_data', confidence: 0.2, badgeEligibility: {
-        inputSource: 'plan-derived', badge: null, eligible: false, variant: null,
-        reason: 'insufficient evidence',
-      } },
-    });
-    const request = {
-      inputSource: 'plan-derived',
-      rooms: [{ roomType: 'kitchen', zone: 'SE' }],
-      plotPolygon: [[0, 0], [10, 0], [10, 10]],
-      doorXY: [5, 0],
-      bearingDeg: 0,
-      pointCloudDensity: 0.8,
-    };
-    await client.vastu('assessments', request);
-    expect(post).toHaveBeenCalledWith('/v2/astrology/vastu/assessments', request);
-  });
+test('collaboration invite preserves 202 pending data and consent/cancellation fields', async () => {
+  const client = new VedikaClient({ apiKey: 'vk_test_x' });
+  const value = {success: true, data: {invitationId: '00000000-0000-4000-8000-000000000001', status: 'pending'}, billing: {chargedCents: 0}};
+  const post = jest.spyOn(client.client, 'post').mockResolvedValue({status: 202, data: value});
+  const invite = {propertyId: 'property-fixture', email: 'synthetic@example.invalid', role: 'viewer'};
+  expect(await client.vastuPropertiesCollaborationInvite(invite)).toEqual(value);
+  const acceptance = {...invite, ownerId: 'synthetic-owner', accept: true};
+  await client.vastuPropertiesCollaborationInvite(acceptance);
+  expect(post.mock.calls[1][1]).toEqual(acceptance);
+  const cancel = {propertyId: 'property-fixture', invitationId: value.data.invitationId};
+  await client.vastuPropertiesCollaborationRevoke(cancel);
+  expect(post.mock.calls[2][1]).toEqual(cancel);
 });

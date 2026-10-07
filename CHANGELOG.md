@@ -5,6 +5,44 @@ All notable changes to the Vedika JavaScript SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.1] - 2026-10-06
+
+### Fixed
+- The client no longer attaches an `Idempotency-Key` to every POST. The API accepts a key only on certified operations and on the Vastu family; on any other `/v2` route a key (or a custom `X-Request-Id`) is answered `422 IDEMPOTENCY_NOT_SUPPORTED`. The key is now added only where the OpenAPI document lists it, plus Vastu, and a key you pass yourself is always sent as given. `/api/v1/astrology/query` sends both `X-Idempotency-Key` and `Idempotency-Key`.
+- A billed POST without a key is no longer retried on a timeout, dropped connection or 502/503/504, because a repeat could charge twice. GETs and keyed requests are retried as before.
+- `422 IDEMPOTENCY_NOT_SUPPORTED` is handled: the request is resent once without the key (the API states that no charge was attempted) and that route is not keyed again.
+- 429 is judged by the JSON body `code`, never by rate-limit headers. `DAILY_LIMIT_EXCEEDED` and `PLAN_LIMIT_EXCEEDED` are not retried. `RATE_LIMIT_EXCEEDED` waits the body `retryAfter` (the `Retry-After` header is the fallback), up to 30 seconds; a longer wait is raised to the caller instead of slept on. Before, every 429 on a safe request was retried on a fixed 1, 2, 4 second schedule, including a spent daily allowance.
+- Error responses delivered as an arraybuffer (`askVoice`) or a stream (`askQuestionStream`) are decoded. A 402 or 429 on those calls used to lose its message and code.
+- The error message falls back to the body `error` field when `message` is absent.
+
+### Added
+- `InsufficientCreditsError` carries `required`, `available`, `deficit` (USD) and `purchaseUrl` from the 402 body. It is never retried.
+- `DailyLimitExceededError` (extends `RateLimitError`) with `upgradeUrl` and `usage`; `RateLimitError` carries `retryAfter` and `limits`.
+- Every `VedikaAPIError` exposes the API's machine-readable `code` and the parsed error `body`.
+- `client.request(method, path, { body, query, idempotencyKey })`, with `get` and `post` shortcuts, for any operation without a named method. A full URL or protocol-relative path is refused, so the key cannot leave the API origin.
+
+### Changed
+- Documentation: `baseUrl` accepts only `https://api.vedika.io` or loopback, as the code has always enforced. The README no longer says `*.vedika.io` subdomains work, no longer lists an environment variable the SDK never read, and states the real key prefixes.
+
+## [3.1.0] - 2026-10-01
+
+### Added
+- Async Vastu jobs: `vastuJobSubmit`, `vastuJobStatus`, `vastuJobResults` (cursor pagination), `vastuJobResultItems` and `vastuJobCancel`, with request and response types. Submit requires a caller-retained `idempotencyKey`; status and results are GET, cancel is POST. The generic `vastu()` now sends GET for `jobs/{id}` and `jobs/{id}/results`. The operation inventory is 98 logical paths.
+- `uploadVastuReport` sends a report PDF to `POST /api/v1/vastu/chat/uploads` as multipart under a required caller-retained key, and `askVastuReport` accepts `reportRef` (`{ type: 'upload', id }`) alone.
+- The named Vastu helpers (`vastuListingAssessment`, `vastuScore`, `vastuAudit`, `vastuRoom`, `vastuPlacement`, `vastuMandalaProject`, `vastuEntrancePada`, `vastuEntranceRecommend`, `vastuArScanQuality`, `vastuArTrueNorthCalibrate`, `vastuPlanGenerate`, `vastuPlanFromRequirements`, `vastuDeclination`) accept `{ idempotencyKey }`, so a new call after a lost response can reuse the key and never pays twice.
+- Vastu `ar/attestation/challenge` operation and the optional `deviceAttestation` request field on `ar/room-capture`, `ar/scan-quality` and `scans/save`, with the `deviceAttestation` status now returned by those operations. The API reports `not_configured` until device attestation is enabled for a platform.
+
+### Changed
+- `vastuListingAssessment` is typed: it takes `VastuAssessmentsRequest` and returns `VastuAssessmentData`. Callers that passed an untyped object need a type that includes `inputSource`.
+
+### Fixed
+- Redirects are no longer followed on the Node transport. A 307 or 308 used to resend the private request body and the retained `Idempotency-Key` to the redirect target (only the auth headers were stripped). A 3xx now raises `VedikaAPIError` and no second request is sent, matching the Android and Swift SDKs. Browser callers should still keep keys behind a server-side proxy.
+
+## [3.0.11] - 2026-09-24
+
+### Fixed
+- Vastu scan calls (`scans/save`, `scans/retrieve`, `scans/list`, `scans/delete`, `scans/timelapse`) no longer send a retry header. The API identifies a scan retry by `scanId` or the body's `requestId` and rejected every scan call that carried an `Idempotency-Key` with `422 IDEMPOTENCY_CONTRACT_UNSUPPORTED`. Passing an idempotency key to a scan call now raises a clear error before anything is sent, and scan calls are still retried on transient failures.
+
 ## [3.0.10] - 2026-09-17
 
 ### Fixed

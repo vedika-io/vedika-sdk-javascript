@@ -196,33 +196,26 @@ describe('credential routing: per-request origin choke point', () => {
   });
 });
 
-describe('credential routing: cross-origin redirect credential strip (Node transport)', () => {
-  test('CONTROL: auth headers survive a SAME-origin redirect', async () => {
+describe('credential routing: redirects are refused (Node transport)', () => {
+  test('a SAME-origin redirect is refused: the second request is never sent', async () => {
     const seen = [];
     const server = http.createServer((req, res) => {
       seen.push({ url: req.url, headers: req.headers });
-      if (req.url.includes('/redirect')) {
-        res.writeHead(302, { Location: '/v2/astrology/horoscope/aries' });
-        res.end();
-        return;
-      }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: true, data: { ok: true } }));
+      res.writeHead(302, { Location: '/v2/astrology/horoscope/aries' });
+      res.end();
     });
     await new Promise((r) => server.listen(0, '127.0.0.1', r));
     const port = server.address().port;
     try {
       const client = new VedikaClient({ apiKey: KEY, baseUrl: `http://127.0.0.1:${port}` });
-      await client.client.get('/redirect');
-      expect(seen).toHaveLength(2);
-      expect(seen[1].headers.authorization).toBe(`Bearer ${KEY}`);
-      expect(seen[1].headers['x-api-key']).toBe(KEY);
+      await expect(client.client.get('/redirect')).rejects.toThrow(/redirect/i);
+      expect(seen).toHaveLength(1);
     } finally {
       server.close();
     }
   });
 
-  test('auth headers are stripped on a CROSS-origin redirect', async () => {
+  test('a CROSS-origin redirect is refused: the other origin receives zero requests', async () => {
     const attackerSeen = [];
     const attacker = http.createServer((req, res) => {
       attackerSeen.push({ url: req.url, headers: req.headers });
@@ -241,10 +234,8 @@ describe('credential routing: cross-origin redirect credential strip (Node trans
 
     try {
       const client = new VedikaClient({ apiKey: KEY, baseUrl: `http://127.0.0.1:${originPort}` });
-      await client.client.get('/v2/astrology/horoscope/aries').catch(() => {});
-      expect(attackerSeen).toHaveLength(1);
-      expect(attackerSeen[0].headers.authorization).toBeUndefined();
-      expect(attackerSeen[0].headers['x-api-key']).toBeUndefined();
+      await expect(client.client.get('/v2/astrology/horoscope/aries')).rejects.toThrow(/redirect/i);
+      expect(attackerSeen).toHaveLength(0);
     } finally {
       attacker.close();
       origin.close();
