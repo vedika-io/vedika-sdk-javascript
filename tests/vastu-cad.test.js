@@ -1,5 +1,5 @@
 const { VedikaClient } = require('../dist');
-const corpus = require('../../../web/vedika-public/js/catalog/vastu-sandbox-demos.json');
+const corpus = require('./fixtures/vastu-sandbox-demos.json');
 test.each([
   ['import-dxf', 'vastuPlanImportDxf', { dxf: 'synthetic', maxChargeUsd: '0.01' }],
   ['export-ifc', 'vastuPlanExportIfc', { plan: {}, outputUnits: 'mm', maxChargeUsd: '0.02' }],
