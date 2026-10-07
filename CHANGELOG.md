@@ -184,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [2.2.0] - 2026-04-16 [DEPRECATED — use 2.2.2+]
 
 ### Added
-- **Voice AI** — 3 tiers via `askVoice()`: `vedika-standard` ($0.072/query, ~1s), `vedika-native` ($0.040, ~800ms, audio-native), `vedika-jarvis` ($0.080, <500ms streaming voice-to-voice). Business + Enterprise plans only.
+- **Voice AI** — `askVoice()` with three voice tiers. Tier ids and prices are in the current API catalog. Business + Enterprise plans only.
 - **Speed modes** — `speed: 'fast'` (1.5–3s, English only, ~700-word cap) or `speed: 'standard'` (12–18s, all 30 languages, default).
 - **Multi-turn conversations** — pass back `conversationId` from any 200 response to continue the conversation. Default 10 messages per conversation.
 - **Voice rate limits documented** — Business: 30 calls/min, 2,000/day. Enterprise: 100/min, 10,000/day.
