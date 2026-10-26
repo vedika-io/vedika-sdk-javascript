@@ -1,0 +1,9 @@
+event: started
+data: {"message":"SSE connection working","stage":0,"progress":0}
+
+event: stage_started
+data: {"stage":"Calculating planetary positions","stageNumber":3,"progress":40,"message":"Calculating planetary positions..."}
+
+event: completed
+data: {"answer":"Your Saturn transit through the 10th house brings career responsibility this year...","followUpSuggestions":["What planetary transits will affect my career this month?"],"metadata":{"engine":"vedika-intelligence","processingTime":250}}
+

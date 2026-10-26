@@ -1,0 +1,39 @@
+{
+  "success": true,
+  "data": {
+    "ascendant": {
+      "sign": "Cancer",
+      "degree": 12.4,
+      "nakshatra": "Pushya"
+    },
+    "planets": [
+      {
+        "name": "Moon",
+        "sign": "Libra",
+        "degree": 18.2,
+        "house": 4,
+        "nakshatra": "Swati",
+        "nakshatraPada": 2
+      }
+    ],
+    "houses": [
+      {
+        "house": 1,
+        "sign": "Cancer",
+        "lord": "Moon"
+      }
+    ]
+  },
+  "billing": {
+    "charged": 0.02,
+    "currency": "USD",
+    "balanceBefore": 24.5,
+    "balanceAfter": 24.48,
+    "endpoint": "Kundli",
+    "category": "astrology"
+  },
+  "meta": {
+    "engine": "vedika-intelligence",
+    "version": "2.1.0"
+  }
+}

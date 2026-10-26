@@ -1,0 +1,31 @@
+{
+  "success": true,
+  "data": {
+    "gunaMilan": {
+      "totalScore": 28,
+      "maxScore": 36
+    },
+    "compatibility": "Good",
+    "doshaAnalysis": {
+      "mangal": {
+        "compatible": true
+      },
+      "nadi": {
+        "compatible": true
+      }
+    },
+    "recommendation": "..."
+  },
+  "billing": {
+    "charged": 0.05,
+    "currency": "USD",
+    "balanceBefore": 24.5,
+    "balanceAfter": 24.45,
+    "endpoint": "Kundali Matching",
+    "category": "astrology"
+  },
+  "meta": {
+    "engine": "vedika-intelligence",
+    "version": "2.1.0"
+  }
+}
