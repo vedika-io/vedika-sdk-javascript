@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "data": {
+    "ascendant": {
+      "sign": "Cancer",
+      "degree": 12.4
+    },
+    "planets": [
+      {
+        "name": "Sun",
+        "sign": "Taurus",
+        "degree": 0.9,
+        "house": 11,
+        "nakshatra": "Krittika",
+        "isRetrograde": false
+      }
+    ],
+    "houses": [
+      {
+        "house": 1,
+        "sign": "Cancer"
+      }
+    ]
+  },
+  "billing": {
+    "charged": 0.02,
+    "currency": "USD",
+    "balanceBefore": 24.5,
+    "balanceAfter": 24.48,
+    "endpoint": "Birth Chart",
+    "category": "astrology"
+  },
+  "meta": {
+    "engine": "vedika-intelligence",
+    "version": "2.1.0"
+  }
+}

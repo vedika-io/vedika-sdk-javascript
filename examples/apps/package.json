@@ -1,0 +1,23 @@
+{
+  "name": "vedika-astrology-demo-apps",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node kundli/server.mjs",
+    "panchang": "node panchang/server.mjs",
+    "kundli": "node kundli/server.mjs",
+    "compatibility": "node compatibility/server.mjs",
+    "test": "node --test tests/*.test.mjs panchang/*.test.mjs kundli/*.test.mjs compatibility/*.test.mjs",
+    "lint": "node scripts/check.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.0",
+    "typescript": "5.9.3"
+  },
+  "description": "Three small Vedika apps: kundli, panchang and compatibility. Runs offline against recorded fixtures.",
+  "license": "MIT"
+}

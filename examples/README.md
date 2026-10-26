@@ -47,6 +47,14 @@ VEDIKA_API_KEY=vk_live_...
   - Takes a plot/building, not a birth chart
   - Best for: Architecture and interior-placement analysis
 
+### Runnable apps
+
+- **`apps/`** - Three small web apps: kundli and birth chart, daily panchang, and
+  compatibility. Each has a form, a server-side API adapter and offline tests against
+  recorded fixtures.
+  - Best for: seeing a complete app that keeps the key on the server
+  - Run: see [`apps/README.md`](apps/README.md)
+
 ## Running Examples
 
 ```bash
