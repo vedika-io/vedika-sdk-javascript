@@ -38,7 +38,7 @@ export interface Citation {
 }
 
 /**
- * Response from AI chatbot query (UNIQUE to Vedika!)
+ * Response from AI chatbot query
  */
 export interface QuestionResponse {
   /** Detailed astrological answer */
@@ -63,6 +63,13 @@ export interface QuestionResponse {
   structuredResponse?: StructuredResponse;
   /** Present when the question was answered from a Vastu report. */
   vastuContext?: VastuReportContext;
+  /**
+   * Delivery and completion details of this answer: how it ended
+   * (`finishReason`, `truncated`) and whether it is a reduced answer
+   * (`degraded`, `degradedReason`). Check it after every question on a tier
+   * where you set `maxTokens`.
+   */
+  metadata?: QuestionResponseMetadata;
 }
 
 /**
@@ -70,7 +77,7 @@ export interface QuestionResponse {
  * plan/analyze, plan/report, plan/generate, audit or score endpoints (up to
  * 64 KB; drop `svg`). Birth details are not needed.
  */
-export interface VastuReportQuestion {
+export interface VastuReportQuestion extends QuestionGenerationControls {
   question: string;
   /** The Vastu response to discuss. Omit on a follow-up that passes `conversationId`. */
   report?: Record<string, unknown>;
@@ -82,7 +89,6 @@ export interface VastuReportQuestion {
   /** Continue a conversation; its saved report is reused when `report` is omitted. */
   conversationId?: string;
   language?: string;
-  speed?: 'standard' | 'fast' | 'eco';
 }
 
 /** How the server used the report. The report is caller-supplied and never verified. */
@@ -106,7 +112,8 @@ export interface VastuReportContext {
  *
  * Types the JSON body returned by
  * `/api/v1/voice` when TTS fails (binary audio unavailable).
- * The primary voice response is binary `audio/mpeg` with metadata in the
+ * The primary voice response is binary audio (`audio/wav`, or `audio/mpeg` when the
+ * backup voice answered; read the Content-Type) with metadata in the
  * `X-Vedika-Voice-Meta` base64-JSON header — see `VoiceMetaHeader`.
  */
 export interface VoiceResponse {
@@ -136,7 +143,7 @@ export interface VoiceResponse {
 
 /**
  * Metadata carried in the `X-Vedika-Voice-Meta` header (base64-decoded JSON)
- * for binary audio/mpeg voice responses. Parallel to VoiceResponse — same
+ * for binary audio voice responses. Parallel to VoiceResponse — same
  * fields, minus audio/response body since those are the binary payload.
  *
  */
@@ -159,11 +166,11 @@ export interface VoiceMetaHeader {
  *
  */
 export interface VoiceResult {
-  /** 'binary' = audio/mpeg body, 'json' = TTS-failed fallback */
+  /** 'binary' = audio body (audio/wav or audio/mpeg), 'json' = TTS-failed fallback */
   kind: 'binary' | 'json';
   /** Raw audio bytes (binary mode) */
   audio?: ArrayBuffer;
-  /** Content-Type (e.g. 'audio/mpeg') */
+  /** Content-Type (e.g. 'audio/wav'; 'audio/mpeg' when the backup voice answered) */
   contentType?: string;
   /** Parsed header metadata (binary mode) */
   meta?: VoiceMetaHeader;
@@ -419,6 +426,131 @@ export interface QuestionQuery {
   birthDetails: BirthDetails;
   /** Response language (optional) */
   language?: string;
+}
+
+/** Delivery tier of an AI question. See {@link QuestionGenerationControls.speed}. */
+export type QuestionSpeed = 'standard' | 'fast' | 'eco' | 'pro-ultra';
+
+/**
+ * Why an answer ended, from `metadata.finishReason`:
+ * - `'complete'`: the answer finished.
+ * - `'length'`: it reached the output limit (`maxTokens`) and may be cut off.
+ * - `'budgetExceeded'`: it was found to end mid-sentence.
+ * - `'stopSequence'`: it stopped at one of your `stop` sequences. Vedika
+ *   Pro Ultra reports this; the other speeds read `'complete'` for a
+ *   stop-sequence ending.
+ * - `'filtered'`: the answer was filtered.
+ * - `'unknown'`: no completion signal came back; do not treat the answer as complete.
+ */
+export type QuestionFinishReason = 'complete' | 'length' | 'budgetExceeded' | 'stopSequence' | 'filtered' | 'unknown';
+
+/**
+ * Why an answer is reduced, from `metadata.degradedReason`:
+ * - `'budget_truncated'`: the answer reached its output limit, or the limit
+ *   was used up before any text was written (a chart-only answer is returned
+ *   then). It is **not charged**. Not set on every route: see
+ *   {@link QuestionResponseMetadata}.
+ * - `'upstream_unavailable'` and `'upstream_timeout'`: the answer was built
+ *   from your computed chart alone.
+ */
+export type QuestionDegradedReason = 'budget_truncated' | 'upstream_unavailable' | 'upstream_timeout';
+
+/**
+ * The `metadata` of an AI question response, and of the `completed` frame of
+ * a stream. The fields below are the ones to branch on; others are
+ * present too and are left untyped.
+ *
+ * An answer that reached its output limit carries `finishReason: 'length'`
+ * (or `'budgetExceeded'`) and `truncated: true`. On a normal response it also
+ * carries `degraded: true` and `degradedReason: 'budget_truncated'`, and is
+ * not charged. It may be cut off, so check `truncated` before showing it as
+ * final, and retry with a higher `maxTokens` or `detail: 'brief'`. On Pro
+ * Ultra a question that used its whole output budget before writing any text
+ * and had no birth chart to answer from is a 400 `OUTPUT_BUDGET_EXHAUSTED`
+ * instead.
+ *
+ * A stream reports the cut-off the same way, on the `metadata` of its `completed`
+ * frame (`finishReason`, `truncated`, `degraded` and `degradedReason`), and a
+ * cut-off stream is not charged either; the text it already delivered stays with you.
+ */
+export interface QuestionResponseMetadata {
+  /** The tier you asked for, echoed back. */
+  speed?: QuestionSpeed;
+  /** The language the answer was written in. */
+  language?: string;
+  /**
+   * How the answer ended. Set on every answer, whatever you sent, and on the
+   * `completed` frame of a stream.
+   */
+  finishReason?: QuestionFinishReason;
+  /** True when the answer reached its output limit or was found incomplete, `false` when it finished. Set with `finishReason`, on every answer. */
+  truncated?: boolean;
+  /** `true` only on a reduced answer; omitted on a normal one. */
+  degraded?: boolean;
+  /** Why the answer is reduced. Present exactly when `degraded` is. */
+  degradedReason?: QuestionDegradedReason;
+  [field: string]: unknown;
+}
+
+/**
+ * Delivery tier and answer-length controls for an AI question. Each field is
+ * sent only when you set it. The API checks every control against the tier
+ * before anything is billed and refuses an unsupported combination with a
+ * coded 400 (for example `CONTROL_UNSUPPORTED_FOR_TIER`), so the SDK passes
+ * the values through and does not second-guess them. See `QuestionErrorCode`
+ * for the codes.
+ */
+export interface QuestionGenerationControls {
+  /**
+   * Delivery tier. `standard` (default), `fast`, `eco` or `pro-ultra`.
+   * `fast` trades some depth for latency; `pro-ultra` selects the Pro Ultra tier.
+   * A tier that cannot serve right now fails closed before any wallet debit, so
+   * the request is never charged and never answered by another tier: `eco`
+   * with a 503 `ECO_UNAVAILABLE`, `pro-ultra` with a 503 `PRO_ULTRA_UNAVAILABLE`
+   * (`ProUltraUnavailableError`).
+   */
+  speed?: QuestionSpeed;
+  /**
+   * Standard-tier engine version: `'2.5'` (default) or `'2'` (retiring).
+   * Valid only with `speed: 'standard'` (or no `speed`); a `version` with any
+   * other speed, or any other value, is a 400 `VALIDATION_ERROR` before billing.
+   * An explicit `'2.5'` is refused `stop` and `seed`; with no `version`, a
+   * request that carries one of them is served on version `'2'`.
+   */
+  version?: '2' | '2.5';
+  /**
+   * Answer length: `'brief'`, `'standard'` or `'detailed'`. It shapes the
+   * answer; `'standard'` is the same as leaving it out. `'detailed'` with a
+   * `maxTokens` below 384 is a 400 `DETAIL_BUDGET_CONFLICT` (not on `eco`).
+   */
+  detail?: 'brief' | 'standard' | 'detailed';
+  /**
+   * Output-token limit for this answer, as an integer. It runs from 1 to 4000
+   * (1 to 8192 on `eco`); a whole number outside the range is clamped to it,
+   * not refused. Without `maxTokens` and `detail` the limit is 2500 (2000 on
+   * `fast`, 8192 on `eco`); with `detail: 'brief'` or `'detailed'` it follows
+   * the length that detail asks for (on `eco` it stays 8192). The limit
+   * includes reasoning on every tier except `pro-ultra`, where it is the
+   * answer budget and reasoning headroom is added on top, billed only when
+   * used. An answer that reaches the limit is returned with
+   * `metadata.finishReason: 'length'` and `metadata.truncated: true`. A
+   * buffered answer cut off this way is not charged; see
+   * {@link QuestionResponseMetadata} for a stream.
+   */
+  maxTokens?: number;
+  /**
+   * Stop sequence: one string, or 1 to 4 strings of 1 to 64 characters each.
+   * Taken by `fast`, `eco`, `pro-ultra` and standard speed (without `version`
+   * it is served on version `'2'`); an explicit `version: '2.5'` refuses it.
+   */
+  stop?: string | string[];
+  /**
+   * Integer sampling hint. Best effort: it does not guarantee identical
+   * output. Taken by `fast`, `eco` and standard speed (without `version` it
+   * is served on version `'2'`); `pro-ultra` and an explicit `version: '2.5'`
+   * refuse it with a 400 `CONTROL_UNSUPPORTED_FOR_TIER`.
+   */
+  seed?: number;
 }
 
 /**
@@ -1776,7 +1908,7 @@ export interface VastuArAnchorRecommendationsData {
   "physicalCoverageVerified": false;
   "coordinateNote": string;
   "omissionNote": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArAttestationChallengeData {
   "challenge": string | null;
@@ -1784,7 +1916,7 @@ export interface VastuArAttestationChallengeData {
   "ttlSeconds": 300 | null;
   "singleUse": true;
   "deviceAttestation": { "status": "challenge_issued" | "not_configured"; "platform": "ios" | "android"; };
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArCaptureMergeData {
   "method": "capture-merge";
@@ -1798,13 +1930,13 @@ export interface VastuArCaptureMergeData {
   "toleranceM": number;
   "alignmentMethod": string;
   "pricing"?: { "attributableCostUsd": string; "markupMultiplier": 4; "computedPriceUsd": string; "settledChargeUsd": string; "settlement": string; };
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArDeityIconsData {
   "icons": Array<{ "zone": "NW" | "N" | "NE" | "W" | "CENTER" | "E" | "SW" | "S" | "SE"; "deity": string; "deityClassification"?: "classical" | "convention"; "deitySource"?: string; "kind": "typographic-nameplate"; "png": VastuJsonValue; "svg": VastuJsonValue; "width": number; "height": number; }>;
   "verified": false;
   "provenance": VastuJsonValue;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArHeatmapRasterData {
   "mask": number;
@@ -1822,7 +1954,7 @@ export interface VastuArHeatmapRasterData {
   "provenance": VastuJsonValue;
   "legend": { "disturbed": { "color": string; "meaning": string; }; "neutral": { "color": string; "meaning": string; }; "observed": string; };
   "computed": true;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArRoomCaptureData {
   "method": "room-capture";
@@ -1842,7 +1974,8 @@ export interface VastuArRoomCaptureData {
   "note": string;
   "deviceAttestation": VastuJsonValue;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
+  "auditStatus"?: { "status": "accepted" | "provisional"; "reasons": Array<string>; };
 }
 export interface VastuArScanQualityData {
   "grade": "A" | "B" | "C" | "D" | "F" | null;
@@ -1864,8 +1997,10 @@ export interface VastuArScanQualityData {
   "limitations": string;
   "deviceAttestation"?: VastuJsonValue;
   "deviceAttested"?: true;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
+  "gradeStatus"?: "computed" | "accepted" | "provisional";
+  "gradeReasons"?: Array<string>;
 }
 export interface VastuArTrueNorthData {
   "input": { "lat": number; "lon": number; "datetime": string; "deviceHeadingAtSunDeg": number; };
@@ -1879,7 +2014,7 @@ export interface VastuArTrueNorthData {
   "verified": boolean;
   "solarGeometryReliable": boolean;
   "headingQuality": { "accuracyDeg": number | null; "sampleAgeMs": number | null; "maxAccuracyDeg": 11.25; "maxSampleAgeMs": 4000; "reliable": boolean; "basis": string; };
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArYantraMeshesData {
   "name": string;
@@ -1892,7 +2027,7 @@ export interface VastuArYantraMeshesData {
   "verified": false;
   "provenance": VastuJsonValue;
   "assetId": "nine-zone-mandala";
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArZoneTexturesData {
   "png": VastuJsonValue;
@@ -1905,20 +2040,23 @@ export interface VastuArZoneTexturesData {
   "pixelBoundsConvention": string;
   "gltfUvOrigin": string;
   "usdUvOrigin": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArchiveDeleteData {
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "propertyId": string;
   "deleted": boolean;
   "exportDeleted": boolean;
   "linkedScanIds": Array<string>;
   "linkedAssessmentIds": Array<string>;
   "erasureStatus"?: "pending" | "completed";
-  "erasureReceipt"?: { "schemaVersion": 1; "propertyId": string; "status": "completed"; "scope": "active-property-storage"; "completedAt": string; "removed": Array<{ "kind": string; "recordId"?: string; "artifactId"?: string; "artifactHash"?: string; "versionHash"?: string; "deleteMarker"?: boolean; "versionCount"?: number; "deleteMarkerCount"?: number; "versionsSha256"?: string; }>; "retained": Array<{ "kind": string; "purpose": string; }>; "backupRetentionDays": number; "backupPolicy": string; "hashAlgorithm": "SHA-256"; "receiptHash": string; "linkedScanIds"?: Array<string>; "linkedAssessmentIds"?: Array<string>; "deletedByAccountHash": string; "deletedAtEpoch": number; "revisionId"?: string; };
+  "erasureReceipt"?: { "schemaVersion": 1; "propertyId": string; "status": "completed"; "scope": "active-property-storage"; "completedAt": string; "removed": Array<{ "kind": string; "recordId"?: string; "artifactId"?: string; "artifactHash"?: string; "versionHash"?: string; "deleteMarker"?: boolean; "versionCount"?: number; "deleteMarkerCount"?: number; "versionsSha256"?: string; }>; "retained": Array<{ "kind": string; "purpose": string; }>; "backupRetentionDays": number; "backupPolicy": string; "hashAlgorithm": "SHA-256"; "receiptHash": string; "linkedScanIds"?: Array<string>; "linkedAssessmentIds"?: Array<string>; "deletedByAccountHash": string; "deletedAtEpoch": number; "revisionId"?: string; "receiptId"?: string; };
   "retryAfterEpoch"?: number;
   "revisionId"?: string;
   "replayed"?: boolean;
+  "receiptId"?: string;
+  "receiptStatus"?: "pending" | "completed";
+  "readReceipt"?: string;
 }
 export interface VastuArchiveExportData {
   "propertyId": string;
@@ -1928,7 +2066,7 @@ export interface VastuArchiveExportData {
   "sizeBytes": number;
   "linkedScanIds": Array<string>;
   "linkedAssessmentIds": Array<string>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArchiveSummaryData {
   "propertyId": string;
@@ -1936,7 +2074,7 @@ export interface VastuArchiveSummaryData {
   "linkedScanCount": number;
   "linkedAssessmentCount": number;
   "expiresAtEpoch": number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuArchiveTierData {
   "propertyId": string;
@@ -1958,15 +2096,15 @@ export interface VastuArchiveTierData {
   "meterCents"?: number;
   "actionCents"?: number;
   "totalCents"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuAssessmentBatchData {
-  "results": Array<{ "id": string; "status": number; "response": { "success": boolean; "data"?: { "system": "vastu"; "method": "listing-assessment"; "status": "assessed" | "insufficient_data"; "score"?: number; "confidence": number; "badgeEligibility": { "inputSource": "seller-supplied" | "plan-derived" | "measured"; "badge": "plan-derived" | "measured" | null; "eligible": boolean; "variant": "standard" | "low_confidence" | null; "confidence"?: number; "fullBadgeThreshold"?: number; "minimumConfidence"?: number; "reason": string; }; "findings"?: Array<Record<string, VastuJsonValue>>; "maxScore"?: number; "grade"?: string | null; "gradeLabel"?: string | null; "scoreBreakdown"?: Record<string, VastuJsonValue> | null; "confidenceBasis": Record<string, VastuJsonValue>; "entrance"?: Record<string, VastuJsonValue> | null; "scanQuality"?: Record<string, VastuJsonValue> | null; "zoneReference"?: Record<string, VastuJsonValue> | null; "sources"?: Array<{ "source": string; "scope": string; "verified": boolean; "classification": "classical" | "convention" | "computed"; "tradition"?: string; }>; "verified"?: boolean; "tradition"?: string; "reason"?: string; "requiredConfidence"?: number; "missingData"?: Array<string>; "reScanSuggestions"?: Array<string>; "charged"?: boolean; "meta": Record<string, VastuJsonValue>; "listingId"?: VastuJsonValue; }; "error"?: string; "code"?: string; "billing"?: { "charged": number; "currency": string; "balanceBefore": number; "balanceAfter": number; "endpoint": string; "category": string; }; "meta"?: { "source"?: string; "engine": "vedika-intelligence"; "version": string; "dataSource"?: "vedika-ephemeris"; }; }; }>;
+  "results": Array<{ "id": string; "status": number; "response": { "success": boolean; "data"?: { "system": "vastu"; "method": "listing-assessment"; "status": "assessed" | "insufficient_data"; "score"?: number; "confidence": number; "badgeEligibility": { "inputSource": "seller-supplied" | "plan-derived" | "measured"; "badge": "plan-derived" | "measured" | null; "eligible": boolean; "variant": "standard" | "low_confidence" | null; "confidence"?: number; "fullBadgeThreshold"?: number; "minimumConfidence"?: number; "reason": string; }; "findings"?: Array<Record<string, VastuJsonValue>>; "maxScore"?: number; "grade"?: string | null; "gradeLabel"?: string | null; "scoreBreakdown"?: Record<string, VastuJsonValue> | null; "confidenceBasis": Record<string, VastuJsonValue>; "entrance"?: Record<string, VastuJsonValue> | null; "scanQuality"?: Record<string, VastuJsonValue> | null; "zoneReference"?: Record<string, VastuJsonValue> | null; "sources"?: Array<{ "source": string; "scope": string; "verified": boolean; "classification": "classical" | "convention" | "computed"; "tradition"?: string; }>; "verified"?: boolean; "tradition"?: string; "reason"?: string; "requiredConfidence"?: number; "missingData"?: Array<string>; "reScanSuggestions"?: Array<string>; "charged"?: boolean; "meta": Record<string, VastuJsonValue>; "listingId"?: VastuJsonValue; "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20"; }; "error"?: string; "code"?: string; "billing"?: { "charged": number; "currency": string; "balanceBefore": number; "balanceAfter": number; "endpoint": string; "category": string; }; "meta"?: { "source"?: string; "engine": "vedika-intelligence"; "version": string; "dataSource"?: "vedika-ephemeris"; }; }; }>;
   "summary": { "total": number; "succeeded": number; "failed": number; };
   "billingBasis": string;
   "execution": "synchronous";
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuAssessmentData {
   "system": "vastu";
@@ -1998,7 +2136,7 @@ export interface VastuAssessmentData {
   "warnings"?: Array<Record<string, VastuJsonValue>>;
   "zoneCheck"?: Record<string, VastuJsonValue>;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuAuspiciousFacingData {
@@ -2015,7 +2153,7 @@ export interface VastuAuspiciousFacingData {
   "rationale"?: string;
   "system"?: string;
   "tradition"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuBearingZoneData {
   "bearingDeg": number;
@@ -2032,7 +2170,7 @@ export interface VastuBearingZoneData {
   "elementSource"?: string;
   "verseBackedRooms"?: Array<string>;
   "roomRulesClassification"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuBrahmasthanProjectionData {
   "centerPolygon": Array<Array<number>>;
@@ -2058,7 +2196,7 @@ export interface VastuBrahmasthanProjectionData {
   "inPlotArea"?: number;
   "inPlotFraction"?: number;
   "shareOfPlotArea"?: number | null;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuCatalogReferenceData {
   "defectCount"?: number;
@@ -2075,7 +2213,7 @@ export interface VastuCatalogReferenceData {
   "meta"?: Record<string, VastuJsonValue>;
   "referenceVersion": string;
   "zoneRemedies"?: Array<{ "zone"?: string; "remedy"?: string; "remedyKey"?: string; "remedyParams"?: Record<string, VastuJsonValue>; "classification"?: string; "source"?: string; }>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuChatUploadData {
   "success": true;
@@ -2089,7 +2227,7 @@ export interface VastuChatUploadData {
   "replayed"?: boolean;
   "billing"?: { "chargedCents"?: number; "balanceAfterCents"?: number | null; "currency"?: "USD"; };
   "fileSha256": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuCompareVersionsData {
   "inputHash": string;
@@ -2100,9 +2238,9 @@ export interface VastuCompareVersionsData {
   "toAssessment": Record<string, VastuJsonValue>;
   "changed": boolean;
   "changes": Array<{ "ruleId": string; "before": VastuJsonValue; "after": VastuJsonValue; "reason": string; "fromReason": Record<string, VastuJsonValue> | null; "toReason": Record<string, VastuJsonValue> | null; }>;
-  "retainedVersions": 2;
+  "retainedVersions": 4;
   "scope": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuComplianceIndexData {
   "score": number | null;
@@ -2125,7 +2263,7 @@ export interface VastuComplianceIndexData {
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
   "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
   "scoreNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuDetailedFloorPlanAuditData {
@@ -2149,8 +2287,10 @@ export interface VastuDetailedFloorPlanAuditData {
   "scoreNote"?: string;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
+  "gradeStatus"?: "computed" | "accepted" | "provisional";
+  "gradeReasons"?: Array<string>;
 }
 export interface VastuDirectionCorrectData {
   "input": Record<string, VastuJsonValue>;
@@ -2163,7 +2303,7 @@ export interface VastuDirectionCorrectData {
   "correctedZoneIsMagnetic"?: boolean;
   "declinationCoverage"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuDirectionDeclinationData {
   "lat": number;
@@ -2178,7 +2318,7 @@ export interface VastuDirectionDeclinationData {
   "classification": string;
   "declinationCoverage"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuDirections32ReferenceData {
   "system"?: string;
@@ -2195,7 +2335,7 @@ export interface VastuDirections32ReferenceData {
   "meta"?: Record<string, VastuJsonValue>;
   "referenceVersion": string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuDirectionsReferenceData {
   "directionCount": number;
@@ -2210,7 +2350,7 @@ export interface VastuDirectionsReferenceData {
   "tradition"?: string;
   "referenceVersion": string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuDrawingSheetData {
   "html": string;
@@ -2240,7 +2380,7 @@ export interface VastuElementBalanceData {
   "method"?: string;
   "summary"?: string;
   "system"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuElementDistributionData {
   "elementDistribution": Array<Record<string, VastuJsonValue>>;
@@ -2254,7 +2394,7 @@ export interface VastuElementDistributionData {
   "system"?: string;
   "totalRooms"?: number;
   "weightingBasis"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuEntrancePadaData {
   "doorXY": Array<number>;
@@ -2266,7 +2406,7 @@ export interface VastuEntrancePadaData {
   "sources": Array<string>;
   "verified": boolean;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuEntranceRecommendData {
   "facing": Record<string, VastuJsonValue>;
@@ -2282,7 +2422,7 @@ export interface VastuEntranceRecommendData {
   "prescribedRoomsAtFacing"?: Array<string>;
   "system"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuFeedListingsData {
   "accepted": number;
@@ -2290,7 +2430,7 @@ export interface VastuFeedListingsData {
   "skipped": number;
   "results": Array<Record<string, VastuJsonValue>>;
   "dryRun"?: boolean;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuFloorPlanAuditData {
   "score": number | null;
@@ -2309,7 +2449,7 @@ export interface VastuFloorPlanAuditData {
   "scoreNote"?: string;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuFloorRulesData {
@@ -2323,7 +2463,7 @@ export interface VastuFloorRulesData {
   "principle"?: string;
   "system"?: string;
   "tradition"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuFusionChartData {
   "ascendant": Record<string, VastuJsonValue>;
@@ -2338,14 +2478,14 @@ export interface VastuFusionChartData {
   "system"?: string;
   "tradition"?: string;
   "verified"?: boolean;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuJobResultsData {
   "jobId": string;
   "jobStatus": "queued" | "running" | "completed" | "partial" | "failed" | "cancelled";
   "results": Array<VastuJsonValue>;
   "nextCursor": string | null;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuJobStatusData {
   "jobId": string;
@@ -2361,7 +2501,7 @@ export interface VastuJobStatusData {
   "finishedAt"?: number | null;
   "expiresAt": number;
   "resultsUrl": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuJobSubmitData {
   "jobId": string;
@@ -2371,7 +2511,7 @@ export interface VastuJobSubmitData {
   "replayed": boolean;
   "preview"?: Array<VastuJsonValue>;
   "previewNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuLevelAnalysisData {
   "idealLevels": Array<Record<string, VastuJsonValue>>;
@@ -2385,7 +2525,7 @@ export interface VastuLevelAnalysisData {
   "principle"?: string;
   "system"?: string;
   "tradition"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuMainGateData {
   "facing": string;
@@ -2405,7 +2545,7 @@ export interface VastuMainGateData {
   "remedyType"?: string;
   "system"?: string;
   "verified"?: boolean;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuMandalaProjectionData {
   "cells": Array<Record<string, VastuJsonValue>>;
@@ -2418,7 +2558,7 @@ export interface VastuMandalaProjectionData {
   "computed"?: boolean;
   "gridFrame"?: { "orientation"?: "north-aligned"; "fittedTo"?: "plot-bounding-box"; "rotationDeg"?: number; "gridBoxArea"?: number; "plotAreaShareOfGridBox"?: number | null; "note"?: string; };
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuMandalaReferenceData {
   "zoneCount"?: number;
@@ -2444,7 +2584,7 @@ export interface VastuMandalaReferenceData {
   "projected"?: boolean;
   "tradition"?: string;
   "referenceVersion": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuMeasurementUncertainty {
   "pointResult": Record<string, VastuJsonValue>;
@@ -2470,7 +2610,7 @@ export interface VastuObstructionData {
   "classification": string;
   "rangeClassification"?: string;
   "rangeSource"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuOverallScoreData {
   "score": number | null;
@@ -2493,7 +2633,7 @@ export interface VastuOverallScoreData {
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
   "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
   "scoreNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuPlacementData {
@@ -2521,7 +2661,7 @@ export interface VastuPlacementData {
   "meta": Record<string, VastuJsonValue>;
   "tradition"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPlanAuditData {
   "system": string;
@@ -2551,11 +2691,15 @@ export interface VastuPlanAuditData {
   "uncertainty"?: VastuMeasurementUncertainty;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
   "units"?: string;
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
+  "gradeStatus"?: "computed" | "accepted" | "provisional";
+  "gradeReasons"?: Array<string>;
+  "directionalScoreStatus"?: "computed" | "needs_facing";
+  "directionalScoreMessage"?: string;
 }
 export interface VastuPlanConvertUnitsData {
   "plan": Record<string, VastuJsonValue>;
@@ -2581,10 +2725,11 @@ export interface VastuPlanExportDxfData {
   "findingCount": number;
   "needsReview": boolean;
   "pricing"?: Record<string, VastuJsonValue>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "units"?: string;
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
+  "canonicalUnits"?: "m";
 }
 export interface VastuPlanExportIfcData {
   "ifc": string;
@@ -2598,6 +2743,8 @@ export interface VastuPlanExportIfcData {
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
   "canonicalUnits": "m";
+  "storeyCount"?: number;
+  "storeys"?: Array<{ "level": number; "name": string; "elevationM": number; "roomCount": number; }>;
 }
 export interface VastuPlanGenerateData {
   "plot": Record<string, VastuJsonValue>;
@@ -2621,14 +2768,15 @@ export interface VastuPlanGenerateData {
   "variantCount"?: number;
   "variantNote"?: string;
   "verified"?: boolean;
-  "floors"?: Array<Record<string, VastuJsonValue>>;
+  "floors"?: Array<{ "level": number; "label": string; "rooms": Array<string>; "roomCount": number; "openTerrace": boolean; "note"?: string; "compliance"?: Record<string, VastuJsonValue>; "placedArea"?: number; "utilisationPct"?: number | null; "svg"?: string; }>;
   "core"?: Record<string, VastuJsonValue>;
   "verticalChecks"?: Array<Record<string, VastuJsonValue>>;
   "floorNote"?: string;
+  "warnings"?: Array<{ "code": "storey-open-terrace" | "storey-bedroom-without-toilet" | "storeys-not-connected"; "floor"?: number; "label"?: string; "field": string; "message": string; }>;
   "uncertainty"?: VastuMeasurementUncertainty;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "units"?: string;
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
@@ -2645,35 +2793,37 @@ export interface VastuPlanImportData {
   "source": { "method": "vector" | "ocr" | "vision"; "document": { "page": number; "pageCount": number; } | null; };
   "usage": { "inputTokens": number; "outputTokens": number; "computeMicros": number; "cpuMicros": number; "deliveryBytes": number; };
   "pricing": { "currency": "USD"; "attributableCost": string; "modelCost": string; "computeCost": string; "markup": 4; "price": string; "unit": "image" | "selected-page"; "walletRounding": string; "computedPrice": string; "deliveryCost": string; };
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "units"?: "m" | "drawing-units";
   "inputUnits"?: "m" | "ft" | "mm" | "in";
   "metresPerInputUnit"?: number;
 }
 export interface VastuPlanImportDxfData {
-  "plan": { "plot": { "width": number; "length": number; "polygon"?: Array<Array<number>>; "units"?: string; }; "rooms": Array<{ "id": string; "name": string; "polygon": Array<Array<number>>; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "area"?: number; "centre"?: Array<number>; "holes"?: Array<Array<Array<number>>>; "source"?: Record<string, VastuJsonValue>; "labelEntityId"?: string; }>; "openings"?: { "doors"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; }>; "windows"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; }>; "units"?: string; }; "trueNorthDeg": number; "orientationDeg"?: number; "units": string; "cadMetadata"?: Record<string, VastuJsonValue>; };
+  "plan": { "plot": { "width": number; "length": number; "polygon"?: Array<Array<number>>; "units"?: string; "facing"?: string; "area"?: number; }; "rooms": Array<{ "id": string; "name": string; "polygon": Array<Array<number>>; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "area"?: number; "centre"?: Array<number>; "holes"?: Array<Array<Array<number>>>; "source"?: Record<string, VastuJsonValue>; "labelEntityId"?: string; }>; "openings"?: { "doors"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; }>; "windows"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; }>; "units"?: string; }; "trueNorthDeg": number; "orientationDeg"?: number; "units": string; "cadMetadata"?: Record<string, VastuJsonValue>; "canonicalUnits"?: "m"; "sourceInputUnits"?: string; };
   "mappingReport": Array<{ "entityId": string; "handle"?: string | null; "stepId"?: number; "entityType": string; "layer"?: string; "role"?: string; "status": string; "planIds"?: Array<string>; "reason"?: string | null; "parentId"?: string; }>;
   "needsReview": boolean;
   "reviewReasons": Array<{ "id"?: string; "reason": string; }>;
   "pricing"?: Record<string, VastuJsonValue>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "units"?: string;
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
+  "canonicalUnits"?: "m";
 }
 export interface VastuPlanImportIfcData {
   "schema": string;
   "buildings": Array<{ "id": string; "name": string; }>;
-  "storeys": Array<{ "id": string; "name": string; "buildingId": string | null; "elevationMetres": number | null; "plan": { "plot": { "width": number; "length": number; "polygon"?: Array<Array<number>>; "units"?: string; }; "rooms": Array<{ "id": string; "name": string; "polygon": Array<Array<number>>; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "area"?: number; "centre"?: Array<number>; "holes"?: Array<Array<Array<number>>>; "source"?: Record<string, VastuJsonValue>; }>; "openings"?: { "doors"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; "name"?: string; "openingHeight"?: number | null; }>; "windows"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; "name"?: string; "openingHeight"?: number | null; }>; "units"?: string; }; "trueNorthDeg": number; "orientationDeg"?: number; "units": string; "cadMetadata"?: Record<string, VastuJsonValue>; }; }>;
+  "storeys": Array<{ "id": string; "name": string; "buildingId": string | null; "elevationMetres": number | null; "plan": { "plot": { "width": number; "length": number; "polygon"?: Array<Array<number>>; "units"?: string; }; "rooms": Array<{ "id": string; "name": string; "polygon": Array<Array<number>>; "x"?: number; "y"?: number; "w"?: number; "h"?: number; "area"?: number; "centre"?: Array<number>; "holes"?: Array<Array<Array<number>>>; "source"?: Record<string, VastuJsonValue>; }>; "openings"?: { "doors"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; "name"?: string; "openingHeight"?: number | null; }>; "windows"?: Array<{ "id": string; "type": string; "line": Array<Array<number>>; "width": number; "centre"?: Array<number>; "source"?: Record<string, VastuJsonValue>; "name"?: string; "openingHeight"?: number | null; }>; "units"?: string; }; "trueNorthDeg": number; "orientationDeg"?: number; "units": string; "cadMetadata"?: Record<string, VastuJsonValue>; "canonicalUnits"?: "m"; "sourceInputUnits"?: string; }; }>;
   "trueNorthDeg": number;
   "mappingReport": Array<{ "entityId": string; "handle"?: string | null; "stepId"?: number; "entityType": string; "layer"?: string; "role"?: string; "status": string; "planIds"?: Array<string>; "reason"?: string | null; "storeyId"?: string | null; }>;
   "needsReview": boolean;
   "reviewReasons": Array<{ "id"?: string; "reason": string; }>;
   "pricing"?: Record<string, VastuJsonValue>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "units"?: string;
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
+  "canonicalUnits"?: "m";
 }
 export interface VastuPlanOptimizeData {
   "before": Record<string, VastuJsonValue>;
@@ -2699,7 +2849,7 @@ export interface VastuPlanOptimizeData {
   "scoring"?: Record<string, VastuJsonValue>;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "units"?: string;
   "inputUnits"?: string;
   "metresPerInputUnit"?: number;
@@ -2723,7 +2873,7 @@ export interface VastuPlotExtensionsCutsData {
   "system"?: string;
   "verdict"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPlotFromSurveyData {
   "method": "plot-from-survey";
@@ -2739,7 +2889,7 @@ export interface VastuPlotFromSurveyData {
   "trueNorthGridBearingDeg": number;
   "maxDistanceFromOriginM": number;
   "pricing"?: { "attributableCostUsd": string; "markupMultiplier": 4; "computedPriceUsd": string; "settledChargeUsd": string; "settlement": string; };
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPlotOrientationData {
   "facing": string;
@@ -2758,7 +2908,7 @@ export interface VastuPlotOrientationData {
   "provenance"?: Record<string, VastuJsonValue>;
   "system"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPlotRatioData {
   "length": number;
@@ -2779,7 +2929,7 @@ export interface VastuPlotRatioData {
   "fillRatio"?: number;
   "ratioScope"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPlotShapeData {
   "shape": string;
@@ -2794,7 +2944,7 @@ export interface VastuPlotShapeData {
   "verified": boolean;
   "boundingFrame": "longest-edge-aligned";
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPlotSlopeData {
   "downSlopeDirection": string;
@@ -2815,7 +2965,7 @@ export interface VastuPlotSlopeData {
   "remedyType"?: string | null;
   "system"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPortfolioAnalyticsData {
   "fromEpoch": number;
@@ -2904,20 +3054,23 @@ export interface VastuPropertiesCreateData {
   "createdAtEpoch": number;
   "updatedAtEpoch": number;
   "contentHash": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPropertiesDeleteData {
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "propertyId": string;
   "deleted": boolean;
   "erasureStatus"?: "pending" | "completed";
-  "erasureReceipt"?: { "schemaVersion": 1; "propertyId": string; "status": "completed"; "scope": "active-property-storage"; "completedAt": string; "removed": Array<{ "kind": string; "recordId"?: string; "artifactId"?: string; "artifactHash"?: string; "versionHash"?: string; "deleteMarker"?: boolean; "versionCount"?: number; "deleteMarkerCount"?: number; "versionsSha256"?: string; }>; "retained": Array<{ "kind": string; "purpose": string; }>; "backupRetentionDays": number; "backupPolicy": string; "hashAlgorithm": "SHA-256"; "receiptHash": string; "linkedScanIds"?: Array<string>; "linkedAssessmentIds"?: Array<string>; "deletedByAccountHash": string; "deletedAtEpoch": number; "revisionId"?: string; };
+  "erasureReceipt"?: { "schemaVersion": 1; "propertyId": string; "status": "completed"; "scope": "active-property-storage"; "completedAt": string; "removed": Array<{ "kind": string; "recordId"?: string; "artifactId"?: string; "artifactHash"?: string; "versionHash"?: string; "deleteMarker"?: boolean; "versionCount"?: number; "deleteMarkerCount"?: number; "versionsSha256"?: string; }>; "retained": Array<{ "kind": string; "purpose": string; }>; "backupRetentionDays": number; "backupPolicy": string; "hashAlgorithm": "SHA-256"; "receiptHash": string; "linkedScanIds"?: Array<string>; "linkedAssessmentIds"?: Array<string>; "deletedByAccountHash": string; "deletedAtEpoch": number; "revisionId"?: string; "receiptId"?: string; };
   "retryAfterEpoch"?: number;
   "exportDeleted"?: boolean;
   "linkedScanIds"?: Array<string>;
   "linkedAssessmentIds"?: Array<string>;
   "revisionId"?: string;
   "replayed"?: boolean;
+  "receiptId"?: string;
+  "receiptStatus"?: "pending" | "completed";
+  "readReceipt"?: string;
 }
 export interface VastuPropertiesGetData {
   "propertyId": string;
@@ -2934,7 +3087,7 @@ export interface VastuPropertiesGetData {
   "createdAtEpoch": number;
   "updatedAtEpoch": number;
   "contentHash": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPropertiesLinkScanData {
   "propertyId": string;
@@ -2951,12 +3104,12 @@ export interface VastuPropertiesLinkScanData {
   "createdAtEpoch": number;
   "updatedAtEpoch": number;
   "contentHash": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPropertiesListData {
   "properties": Array<{ "propertyId": string; "ownerId": string; "ids": { "project": string; "building": string; "unit": string; "floor": string; "revision": string; }; "title": string; "data": Record<string, VastuJsonValue>; "retentionDays": number; "expiresAtEpoch": number; "linkedScanIds": Array<string>; "linkedAssessmentIds": Array<string>; "archiveTier": { "months": number; "storedBytes": number; "priceCents": number; "setAtEpoch": number; "retainUntilEpoch": number; } | null; "externalId": string | null; "createdAtEpoch": number; "updatedAtEpoch": number; "contentHash": string; }>;
   "nextCursor": string | null;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuPropertiesUpdateData {
   "propertyId": string;
@@ -2973,10 +3126,10 @@ export interface VastuPropertiesUpdateData {
   "createdAtEpoch": number;
   "updatedAtEpoch": number;
   "contentHash": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuQuoteCalculateData {
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "workflowId": string;
   "currency": "USD";
   "subtotal": string;
@@ -2989,7 +3142,7 @@ export interface VastuReceiptVerifyData {
   "receipt": { "assessmentId": string; "inputHash": string; "resultHash": string; "rulesVersion": string; "score": number; "grade": string | null; "sourceLabels": Array<string>; "timestamp": number; };
   "inputMatched": boolean | null;
   "charged": 0;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuRemediationTaskData {
   "taskId": string;
@@ -3023,7 +3176,7 @@ export interface VastuRemedyComparisonData {
   "tradition"?: string;
   "verified"?: boolean;
   "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuRoadOrientationData {
   "roadAnalysis": Array<Record<string, VastuJsonValue>>;
@@ -3041,7 +3194,7 @@ export interface VastuRoadOrientationData {
   "summary"?: string;
   "system"?: string;
   "verdict"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuRoomData {
   "system": string;
@@ -3069,7 +3222,7 @@ export interface VastuRoomData {
   "roomTypeNote"?: string;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuRuleVersionsData {
   "currentVersion": string;
@@ -3077,7 +3230,7 @@ export interface VastuRuleVersionsData {
   "versions": Array<string>;
   "scope": string;
   "scoringVersion": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuScanStoredData {
   "schemaVersion": 1;
@@ -3088,7 +3241,8 @@ export interface VastuScanStoredData {
   "captureVerification": "unverified-caller-input";
   "geometryUnits": "metres";
   "assessmentNote": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
+  "auditStatus"?: { "status": "accepted" | "provisional"; "reasons": Array<string>; };
 }
 export interface VastuScansDeleteData {
   "scanId": string;
@@ -3096,7 +3250,12 @@ export interface VastuScansDeleteData {
   "deletionScope": string;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
+  "propertyId"?: string | null;
+  "settlement"?: string;
+  "alreadyDeleted"?: boolean;
+  "receiptId"?: string;
+  "deletionReceipt"?: { "schemaVersion": 1; "kind": "scan-deletion"; "scanId": string; "scope": "saved-scan-record"; "removed": Array<{ "kind": string; "artifactId": string; }>; "scopeNote"?: string; "deletedByAccountHash": string; "deletedAtEpoch": number; "deletedAt": string; "hashAlgorithm": "SHA-256"; "receiptId": string; "receiptHash": string; };
 }
 export interface VastuScansListData {
   "scans": Array<VastuJsonValue>;
@@ -3104,13 +3263,13 @@ export interface VastuScansListData {
   "paginationNote"?: string;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuScansRetrieveData {
   "scan": VastuJsonValue;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuScansSaveData {
   "scan": VastuJsonValue;
@@ -3119,7 +3278,7 @@ export interface VastuScansSaveData {
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
   "deviceAttestation"?: VastuJsonValue;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuScansTimelapseData {
   "propertyId": string;
@@ -3128,7 +3287,7 @@ export interface VastuScansTimelapseData {
   "physicalChangeVerified": false;
   "persistence": "account-store" | "preview-only";
   "previewNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuSingleRoomAuditData {
   "input": Record<string, VastuJsonValue>;
@@ -3146,7 +3305,7 @@ export interface VastuSingleRoomAuditData {
   "remedySource"?: string | null;
   "merchantCatalogId"?: string;
   "merchantCatalogRevision"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuSpecializedAuditData {
   "system": string;
@@ -3169,7 +3328,7 @@ export interface VastuSpecializedAuditData {
   "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
   "scoreNote"?: string;
   "uncertainty"?: VastuMeasurementUncertainty;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export interface VastuSunPathData {
@@ -3189,7 +3348,7 @@ export interface VastuSunPathData {
   "note"?: string;
   "noonUtc"?: string;
   "noonElevationDeg"?: number;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuTimingData {
   "system": string;
@@ -3201,7 +3360,7 @@ export interface VastuTimingData {
   "meta": Record<string, VastuJsonValue>;
   "guidance": Record<string, VastuJsonValue>;
   "foundationRite"?: Record<string, VastuJsonValue>;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuWallAnalysisData {
   "idealWalls": Array<Record<string, VastuJsonValue>>;
@@ -3215,7 +3374,7 @@ export interface VastuWallAnalysisData {
   "principle"?: string;
   "system"?: string;
   "tradition"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuWorkflowData {
   "revision": number;
@@ -3256,7 +3415,7 @@ export interface VastuZoneReferenceData {
   "tradition"?: string;
   "meta"?: Record<string, VastuJsonValue>;
   "referenceVersion": string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
 }
 export interface VastuZoneWiseScoreData {
   "zones": Array<{ "zone"?: string; "zoneWeight"?: number; "zoneImportance"?: string; "score"?: number; "grade"?: string; "worstSeverity"?: string; "rooms"?: Array<{ "room"?: string; "severity"?: string; "compliant"?: boolean; "issue"?: string; "remedy"?: string | null; "remedyType"?: string | null; "remedyClassification"?: string | null; "remedySource"?: string | null; "recommendedZone"?: string | null; }>; "source"?: string; "verified"?: boolean; "tradition"?: string; }>;
@@ -3277,7 +3436,7 @@ export interface VastuZoneWiseScoreData {
   "scoring": { "version": string; "unit": string; "formula": string; "basis": string; "comparisonBasis": string; "classification": string; "inputPlacementCount": number; "uniquePlacementCount": number; "duplicatePlacementCount": number; "verified": false; };
   "notAssessed"?: Array<{ "room": string; "zone": string; "reason": "no placement rule for this space type"; "graded": false; }>;
   "scoreNote"?: string;
-  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04";
+  "rulesVersion"?: "vastu-rules-2026-09-23" | "vastu-rules-2026-10-04" | "vastu-rules-2026-10-18" | "vastu-rules-2026-10-20";
   "receipt"?: { "format": "JWS"; "token": string; "verifyUrl": string; "keyUrl": string; };
 }
 export type VastuArScanQualityResponse = VastuResponse<VastuArScanQualityData>;
@@ -4409,19 +4568,19 @@ export interface CareerResult {
 }
 
 // ═══════════════════════════════════════════
-// TS→Rust Transition-Tolerant Surfaces (SDK 3.0.6)
+// Server-Version-Tolerant Surfaces (SDK 3.0.6)
 // ═══════════════════════════════════════════
 //
-// The TS→Rust cutover aligns Rust v2 responses to the live TS contract, so most
-// families parse unchanged across either engine. A few families have a KNOWN
+// Supported server versions share the v2 contract, so most
+// families parse unchanged across them. A few families have a KNOWN
 // transition divergence between supported server versions:
-//   - western synastry/composite: Rust may OMIT the `interpretation`,
+//   - western synastry/composite: a server version may OMIT the `interpretation`,
 //     `orbQuality`, `signifies` prose blocks (uncited Western lore held back).
-//   - matchmaking scoring: total score may differ by engine (value, not shape).
+//   - matchmaking scoring: total score may differ by version (value, not shape).
 //   - angel-message: value/semantics differ (not surfaced as a typed SDK method).
 //
 // These types make every transition-divergent field OPTIONAL so a response from
-// EITHER engine type-checks and parses cleanly. They are additive — existing
+// ANY server version type-checks and parses cleanly. They are additive — existing
 // untyped `Record<string, any>` returns are unchanged. No field is invented.
 
 /** A single inter-chart aspect in a Western synastry/composite reading. */
@@ -4445,16 +4604,16 @@ export interface SynastryAspect {
 /**
  * Western relationship (synastry / composite) result — transition-tolerant.
  *
- * EVERY interpretive/prose field is optional because the Rust engine may omit
- * `interpretation`, `orbQuality`, and `signifies` during the cutover while the
+ * EVERY interpretive/prose field is optional because a server version may omit
+ * `interpretation`, `orbQuality`, and `signifies` while the
  * computed geometry (planets, aspects, orbs, MC) is value-parity-exact. Typing
  * these as optional means consumers that opt into the type never crash on a
- * missing prose block from either engine.
+ * missing prose block from any server version.
  */
 export interface WesternRelationshipResult {
   /** synastry | composite | synastry-aspects | composite-aspects */
   type?: string;
-  /** Inter-chart aspects (computed on both engines) */
+  /** Inter-chart aspects (computed by every server version) */
   aspects?: SynastryAspect[];
   /** Overall relationship interpretation. OPTIONAL — transition-divergent. */
   interpretation?: string;
@@ -4467,7 +4626,7 @@ export interface WesternRelationshipResult {
 /**
  * Normalize a Western relationship response so transition-divergent prose
  * fields are always at least present (defaulted to ''/[]), regardless of which
- * engine (TS or Rust) produced it. Pure shape-tolerance — invents NO data, only
+ * server version produced it. Pure shape-tolerance — invents NO data, only
  * guarantees the keys exist so downstream `.interpretation.length` etc. never
  * throws. Pass the raw `getWesternRelationship()` result through this.
  */
@@ -4491,16 +4650,9 @@ export function normalizeWesternRelationship(
 }
 
 /** Enhanced question query with V2 options */
-export interface EnhancedQuestionQuery extends QuestionQuery {
+export interface EnhancedQuestionQuery extends QuestionQuery, QuestionGenerationControls {
   /** Astrology system: vedic, western, or kp */
   system?: 'vedic' | 'western' | 'kp';
-  /**
-   * Delivery tier. `standard` (default) and `fast` are always available; `fast`
-   * trades some depth for latency. `eco` is served by the Vedika Eco engine — when
-   * that engine is not configured on the serving deploy an eco request fails closed
-   * with a masked 503 `ECO_UNAVAILABLE` before any wallet debit, so it is never charged.
-   */
-  speed?: 'standard' | 'fast' | 'eco';
   /** Conversation ID for multi-turn context */
   conversationId?: string;
   /** Partner birth details (for compatibility questions) */

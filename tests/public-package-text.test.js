@@ -66,6 +66,58 @@ describe('public package text', () => {
     expect(INTERNAL_VERSION.test('Supported since v3 of the API')).toBe(false);
   });
 
+  // Rule 11 covers the stack too: the language and cloud the API runs on and
+  // the model vendors behind it are never named. "Rust" shipped in comments
+  // and the changelog from 3.0.6 to 3.1.2, and the README named the cloud.
+  test('customer-facing files name no stack or vendor', () => {
+    const STACK =
+      /\b(?:rust|aws|amazon web services|bedrock|cerebras|openai|anthropic|claude|minimax|prokerala)\b|\bTS\s*(?:->|→)/i;
+    const self = path.join('tests', path.basename(__filename));
+    const shipped = fs.existsSync(path.join(root, 'dist')) ? walk('dist') : [];
+    const files = ['README.md', 'CHANGELOG.md', 'SECURITY.md', 'CONTRIBUTING.md', ...walk('src'), ...walk('examples'), ...walk('tests'), ...shipped]
+      .filter((file) => file !== self && !/\.(?:png|jpe?g|gif|ico|pdf|map)$/.test(file));
+    const offenders = files.flatMap((file) =>
+      read(file)
+        .split('\n')
+        .map((line, index) => [line, index + 1])
+        .filter(([line]) => STACK.test(line))
+        .map(([line, number]) => `${file}:${number}: ${line.trim().slice(0, 120)}`),
+    );
+    expect(offenders).toEqual([]);
+    // Known-positive controls: the exact shapes that shipped before.
+    expect(STACK.test('validated against the recorded Rust response fixtures')).toBe(true);
+    expect(STACK.test('single region (AWS `ap-south-1`, Mumbai)')).toBe(true);
+    expect(STACK.test('// TS→Rust transition-tolerant surfaces (3.0.6)')).toBe(true);
+    // And it leaves ordinary words alone.
+    expect(STACK.test('Trust the signed receipt; rusted plots and claudication')).toBe(false);
+  });
+
+  test('public capabilities do not make unsupported exclusivity claims', () => {
+    const unsupported = /\bonly\s+b2b\b|\bonly vedika offers\b|\bno other (?:api|provider)\b|\bunique to vedika\b|\bonly conversational ai\b/i;
+    const files = ['README.md', 'package.json', ...walk('src'), ...walk('examples')];
+    const offenders = files.filter((file) => unsupported.test(read(file).replace(/\*\*/g, '')));
+    expect(offenders).toEqual([]);
+    expect(unsupported.test('The only B2B astrology API')).toBe(true);
+    expect(unsupported.test('Conversational readings and chart calculations')).toBe(false);
+  });
+
+  test('customer guidance does not promise numerical response-time ranges', () => {
+    const latencyRange = /\b\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?\s*(?:s\b|seconds?\b)|\b(?:average|typical)\s+response\s+time[^\n]*\d+(?:\.\d+)?\s*(?:s\b|seconds?\b)/i;
+    const files = ['README.md', ...walk('src'), ...walk('examples')];
+    expect(files.filter((file) => latencyRange.test(read(file)))).toEqual([]);
+    expect(latencyRange.test('Fast mode: 1.5-3 seconds')).toBe(true);
+    expect(latencyRange.test('Standard: 12–18s')).toBe(true);
+    expect(latencyRange.test('Average response time: 2.14 seconds')).toBe(true);
+    expect(latencyRange.test('timeout: 60000; response time varies by route')).toBe(false);
+  });
+
+  test('public performance guidance does not publish private deployment topology', () => {
+    const topology = /\bsingle region\b|\bcross-region failover\b|availability[^\n]*Mumbai/i;
+    expect(topology.test(read('README.md'))).toBe(false);
+    expect(topology.test('Availability: single region with no cross-region failover')).toBe(true);
+    expect(topology.test('Availability commitments follow your signed agreement')).toBe(false);
+  });
+
   test('README example lists match the examples directory', () => {
     const onDisk = new Set(fs.readdirSync(path.join(root, 'examples')).filter((name) => /\.jsx?$/.test(name)));
     for (const document of ['README.md', 'examples/README.md']) {

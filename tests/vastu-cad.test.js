@@ -1,12 +1,13 @@
+const { referencePath } = require('./reference-fixtures');
 const { VedikaClient } = require('../dist');
-const corpus = require('./fixtures/vastu-sandbox-demos.json');
+const corpus = require(referencePath('web/vedika-public/js/catalog/vastu-sandbox-demos.json', 'vastu-cad-responses.json'));
 test.each([
   ['import-dxf', 'vastuPlanImportDxf', { dxf: 'synthetic', maxChargeUsd: '0.01' }],
   ['export-ifc', 'vastuPlanExportIfc', { plan: {}, outputUnits: 'mm', maxChargeUsd: '0.02' }],
   ['convert-units', 'vastuPlanConvertUnits', { plan: {}, inputUnits: 'm', outputUnits: 'ft' }],
   ['export-dxf', 'vastuPlanExportDxf', { plan: {}, maxChargeUsd: '0.02' }],
   ['import-ifc', 'vastuPlanImportIfc', { ifc: 'synthetic', maxChargeUsd: '0.03' }],
-])('CAD %s preserves the debit ceiling and decodes a real Rust recording', async (tail, method, body) => {
+])('CAD %s preserves the debit ceiling and decodes a real server recording', async (tail, method, body) => {
   const client = new VedikaClient({ apiKey: 'vk_test' });
   const fixture = corpus.demos['vastu__plan_' + tail.replace('-', '_')];
   expect(fixture.success).toBe(true);

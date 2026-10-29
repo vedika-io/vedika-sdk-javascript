@@ -66,7 +66,7 @@ test('sends auth and JSON once, unwraps V2, and keeps billing metadata non-enume
   expect(requests[0]).toMatchObject({ method: 'POST', url: '/v2/astrology/vastu/score/overall' });
   expect(JSON.parse(requests[0].body)).toEqual({ zone: 'north' });
   expect(requests[0].headers.authorization).toBe(`Bearer ${apiKey}`);
-  expect(requests[0].headers['x-api-key']).toBe(apiKey);
+  expect(requests[0].headers['x-api-key']).toBeUndefined();
   expect(requests[0].headers['idempotency-key']).toBeTruthy();
 });
 

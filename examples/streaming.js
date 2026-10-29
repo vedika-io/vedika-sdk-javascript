@@ -32,7 +32,7 @@ async function main() {
   console.log('🌊 Streaming Response Example');
   console.log('='.repeat(60));
   console.log(`\n❓ Question: ${question}`);
-  console.log('\n⏳ Streaming response (this may take 20-40 seconds)...');
+  console.log('\n⏳ Waiting for the response stream...');
   console.log('\n' + '-'.repeat(60));
   console.log();
 

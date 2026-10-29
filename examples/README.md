@@ -47,13 +47,9 @@ VEDIKA_API_KEY=vk_live_...
   - Takes a plot/building, not a birth chart
   - Best for: Architecture and interior-placement analysis
 
-### Runnable apps
-
-- **`apps/`** - Three small web apps: kundli and birth chart, daily panchang, and
-  compatibility. Each has a form, a server-side API adapter and offline tests against
-  recorded fixtures.
-  - Best for: seeing a complete app that keeps the key on the server
-  - Run: see [`apps/README.md`](apps/README.md)
+- **`room-scan.js`** - Upload a finished room scan and show the floor merge rule (a dry run unless you pass `--live`)
+  - Sends a `vedika.roomCapture/1` capture; both calls are billed with `--live`
+  - Best for: Scanner apps that capture rooms for Vastu analysis
 
 ## Running Examples
 
@@ -69,6 +65,9 @@ node examples/streaming.js
 
 # Vastu building analysis
 node examples/vastu.js
+
+# Room scan upload (dry run; add --live to send)
+node examples/room-scan.js
 ```
 
 ## Get Your API Key

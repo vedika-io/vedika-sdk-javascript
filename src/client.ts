@@ -26,6 +26,7 @@ import {
   PredictionQuery,
   HoroscopeQuery,
   EnhancedQuestionQuery,
+  QuestionGenerationControls,
   VastuReportQuestion,
   ChartType,
   DashaSystem,
@@ -93,6 +94,9 @@ import {
   ServerError,
   NetworkError,
   DailyLimitExceededError,
+  ProUltraUnavailableError,
+  OutputBudgetExhaustedError,
+  QuestionErrorCode,
 } from './exceptions';
 import { certifiedIdempotencyHeaders } from './idempotency-policy';
 import type { VoiceQuery, VoiceResult, VoiceMetaHeader, VoiceResponse } from './types';
@@ -102,7 +106,7 @@ import { normalizeWesternRelationship, VASTU_OPERATIONS } from './types';
 /**
  * Main client for the Vedika Astrology API
  *
- * The ONLY B2B astrology API with AI-powered chatbot queries.
+ * Astrology APIs with structured calculations and conversational readings.
  *
  * @example
  * ```typescript
@@ -134,8 +138,7 @@ function stripLeadingSlash(path: string): string {
 
 /**
  * Generate a fresh client-side idempotency key. Not a secret — a dedupe token
- * the server keys a retry-safe charge on (see `v2_idempotency_header` /
- * `deduct_v2_cost_idempotent` in the Rust v2 crate, which accept
+ * the server keys a retry-safe charge on (the API accepts
  * `Idempotency-Key` / `X-Idempotency-Key` / `X-Request-Id`, case-insensitive).
  * Prefers `crypto.randomUUID` (Node 14.17+ / modern browsers) and falls back
  * to a `Math.random`-based token on older runtimes — this package declares
@@ -224,8 +227,12 @@ function isRetryableRequest(config: any): boolean {
   return usesBodyIdentity(config.url) || hasIdempotencyHeader(config.headers);
 }
 
-/** 429 codes that will not clear by waiting a few seconds: never retried. */
-const NON_RETRYABLE_429_CODES = new Set(['DAILY_LIMIT_EXCEEDED', 'PLAN_LIMIT_EXCEEDED']);
+/**
+ * 429 codes that will not clear by waiting a few seconds: never retried.
+ * `MONTHLY_SPEND_LIMIT_REACHED` clears only when the UTC month rolls over or the
+ * account owner raises or removes the limit.
+ */
+const NON_RETRYABLE_429_CODES = new Set(['DAILY_LIMIT_EXCEEDED', 'PLAN_LIMIT_EXCEEDED', 'MONTHLY_SPEND_LIMIT_REACHED']);
 
 /** Longest Retry-After the SDK will sleep for. A longer ask is surfaced to the caller instead. */
 const MAX_RETRY_AFTER_MS = 30_000;
@@ -300,6 +307,24 @@ function assertVastuJobId(jobId: unknown): string {
     throw new ValidationError('jobId must be the vjob_... id returned when the job was submitted');
   }
   return jobId;
+}
+
+/**
+ * The delivery-tier and answer-length fields of an AI question, copied from the
+ * caller's query into the request body. A field is sent only when it is set;
+ * an empty string is treated as unset, and `0` is a valid `seed`. The API
+ * validates the values and refuses unsupported ones before billing; nothing is
+ * checked here.
+ */
+function generationControlFields(query: QuestionGenerationControls): QuestionGenerationControls {
+  const fields: QuestionGenerationControls = {};
+  if (query.speed) fields.speed = query.speed;
+  if (query.version) fields.version = query.version;
+  if (query.detail) fields.detail = query.detail;
+  if (query.maxTokens != null) fields.maxTokens = query.maxTokens;
+  if (query.stop != null) fields.stop = query.stop;
+  if (query.seed != null) fields.seed = query.seed;
+  return fields;
 }
 
 /** Idempotency-Key rule shared by the multipart upload: 1-256 visible ASCII characters. */
@@ -578,9 +603,7 @@ export class VedikaClient {
     // Validate before creating a transport that holds credential headers.
     const allowedOrigin = assertSafeBaseUrl(baseURL).origin;
 
-    // X-API-Key is DEPRECATED at server level, sunset
-    // Oct 20, 2026. Send Authorization: Bearer as PRIMARY auth. Keep
-    // X-API-Key for backwards-compat with pre-v2.3 server middleware only.
+    // Authorization: Bearer is the only credential header this client sends.
     // UA synced to actual package version.
     this.client = axios.create({
       baseURL,
@@ -588,8 +611,7 @@ export class VedikaClient {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
-        'X-API-Key': this.apiKey,  // DEPRECATED — remove after 2026-10-20
-        'User-Agent': 'vedika-javascript-sdk/3.1.1',
+        'User-Agent': 'vedika-javascript-sdk/3.2.2',
       },
       // Credential-routing hardening, NODE TRANSPORT ONLY: no redirect is
       // ever followed. Stripping auth headers is not enough, because a 307 or
@@ -662,16 +684,16 @@ export class VedikaClient {
         // are never touched. The original envelope stays reachable as a
         // non-enumerable `__envelope` (won't pollute JSON.stringify).
         //
-        // TS→Rust transition tolerance (3.0.6): `billing` is no longer REQUIRED
-        // to recognise the envelope. The cutover aligns Rust v2 responses to the
-        // live TS contract, but some engines/families emit the envelope without a
+        // Server-version tolerance (3.0.6): `billing` is no longer REQUIRED
+        // to recognise the envelope. Supported server versions share the v2
+        // contract, but some families emit the envelope without a
         // top-level `billing` block (billing may move to `meta`, or be omitted on
         // free/idempotent paths). Keying the unwrap on `billing` left those
         // responses wrapped, so callers on the direct-return methods
         // (matrimony, western relationship, spiritual, human-design, iching)
         // got the raw {success,data} envelope instead of the payload. We now
         // unwrap on the load-bearing `success===true && data is object`
-        // signature, which both engines share. v1 payloads
+        // signature, which every server version shares. v1 payloads
         // ({answer,...} / {ascendant,...}) never carry BOTH keys, so they are
         // still never touched.
         const b: any = response.data;
@@ -781,6 +803,15 @@ export class VedikaClient {
         );
       }
 
+      // Pro Ultra's two refusals get their own types. Both are answered before
+      // anything is billed, and neither is ever retried with other settings.
+      if (status === 503 && code === QuestionErrorCode.PRO_ULTRA_UNAVAILABLE) {
+        throw new ProUltraUnavailableError(message, { ...details, retryAfter: retryAfterSeconds(data, error.response.headers) });
+      }
+      if (status === 400 && code === QuestionErrorCode.OUTPUT_BUDGET_EXHAUSTED) {
+        throw new OutputBudgetExhaustedError(message, details);
+      }
+
       switch (status) {
         case 401:
           throw new AuthenticationError(message, details);
@@ -837,9 +868,9 @@ export class VedikaClient {
   }
 
   /**
-   * Ask a conversational astrology question (UNIQUE to Vedika!)
+   * Ask a conversational astrology question
    *
-   * This is the only B2B astrology API that supports natural language queries.
+   * This method sends natural-language questions to the Vedika API.
    *
    * @param query - Question query parameters
    * @returns Promise resolving to the answer
@@ -859,6 +890,15 @@ export class VedikaClient {
    *
    * console.log(response.answer);
    * console.log(`Confidence: ${response.confidence}`);
+   *
+   * // Pro Ultra tier with a short answer capped at 600 output tokens
+   * const brief = await client.askQuestion({
+   *   question: 'What are my career prospects this year?',
+   *   birthDetails,
+   *   speed: 'pro-ultra',
+   *   detail: 'brief',
+   *   maxTokens: 600
+   * });
    * ```
    */
   async askQuestion(query: QuestionQuery | EnhancedQuestionQuery): Promise<QuestionResponse> {
@@ -868,7 +908,7 @@ export class VedikaClient {
       birthDetails: query.birthDetails,
       language: query.language || this.defaultLanguage,
       ...(enhanced.system && { system: enhanced.system }),
-      ...(enhanced.speed && { speed: enhanced.speed }),
+      ...generationControlFields(enhanced),
       ...(enhanced.conversationId && { conversationId: enhanced.conversationId }),
       ...(enhanced.partnerBirthDetails && { partnerBirthDetails: enhanced.partnerBirthDetails }),
       ...(enhanced.includeRemedies !== undefined && { includeRemedies: enhanced.includeRemedies }),
@@ -910,7 +950,7 @@ export class VedikaClient {
       ...(query.report !== undefined && { vastuContext: { report: query.report } }),
       ...(query.reportRef !== undefined && { vastuContext: { reportRef: { type: query.reportRef.type, id: query.reportRef.id } } }),
       ...(query.conversationId && { conversationId: query.conversationId }),
-      ...(query.speed && { speed: query.speed }),
+      ...generationControlFields(query),
     });
     return response.data;
   }
@@ -931,13 +971,14 @@ export class VedikaClient {
    * }
    * ```
    */
-  async *askQuestionStream(query: QuestionQuery): AsyncGenerator<string> {
+  async *askQuestionStream(query: QuestionQuery & QuestionGenerationControls): AsyncGenerator<string> {
     const response = await this.client.post(
       '/api/v1/astrology/query/stream',
       {
         question: query.question,
         birthDetails: query.birthDetails,
         language: query.language || this.defaultLanguage,
+        ...generationControlFields(query),
       },
       {
         responseType: 'stream',
@@ -1245,7 +1286,7 @@ export class VedikaClient {
   // Vastu (101 logical operations, mounted under two public aliases)
   //
   // Vastu takes a BUILDING (plot polygon, rooms, compass zone), never a
-  // birth chart. Real paths are verified against the Rust-owned 82-operation
+  // birth chart. Real paths are verified against the 82-operation
   // served OpenAPI contract — all live under
   // /v2/astrology/vastu/. `vastu()` and `vastuReference()` are generic
   // escape hatches for the long tail of the family set; the named helpers
@@ -1813,12 +1854,12 @@ export class VedikaClient {
   /**
    * Get Western relationship analysis (synastry/composite).
    *
-   * TS→Rust transition note (3.0.6): the result is normalized so the
-   * transition-divergent prose fields (`interpretation`, per-aspect
-   * `orbQuality`/`signifies`) are always at least present — the Rust engine may
+   * Server-version note (3.0.6): the result is normalized so the
+   * version-divergent prose fields (`interpretation`, per-aspect
+   * `orbQuality`/`signifies`) are always at least present — a server version may
    * omit them while the computed geometry stays parity-exact. Every prose field
    * on `WesternRelationshipResult` is optional, so consumers never crash on a
-   * missing block from either engine. The full raw payload is preserved via the
+   * missing block from any server version. The full raw payload is preserved via the
    * index signature.
    */
   async getWesternRelationship(
@@ -2219,7 +2260,8 @@ export class VedikaClient {
    * Returns a unified `VoiceResult` that branches on the server response:
    *
    * - **binary mode** (`kind: 'binary'`): TTS succeeded, `audio` holds the
-   *   raw `audio/mpeg` bytes and `meta` holds the parsed
+   *   raw audio bytes (WAV normally, MP3 when the backup voice answered;
+   *   `contentType` names which) and `meta` holds the parsed
    *   `X-Vedika-Voice-Meta` header.
    * - **json mode** (`kind: 'json'`): TTS fallback, `json.audio` is null
    *   and `json.response` holds the text answer.
@@ -2262,7 +2304,7 @@ export class VedikaClient {
       responseType: 'arraybuffer',
       // Let axios/browser set the multipart boundary; drop the JSON default.
       headers: { 'Content-Type': undefined as any },
-      // Accept both audio/mpeg (binary) and application/json (TTS fallback)
+      // Accept both binary audio (audio/wav or audio/mpeg) and application/json (TTS fallback)
       // so we can branch on the response content-type.
       validateStatus: (s) => s >= 200 && s < 300,
     });
@@ -2277,7 +2319,7 @@ export class VedikaClient {
       return { kind: 'json', json, contentType };
     }
 
-    // Binary audio/mpeg path — parse metadata header.
+    // Binary audio path (audio/wav or audio/mpeg) — parse metadata header.
     const metaHeader = response.headers['x-vedika-voice-meta'] as string | undefined;
     let meta: VoiceMetaHeader | undefined;
     if (metaHeader) {

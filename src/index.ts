@@ -1,11 +1,19 @@
 /**
  * Vedika JavaScript/Node.js SDK
- * The only B2B astrology API with AI-powered chatbot queries.
+ * Astrology APIs with structured calculations and conversational readings.
  *
  * @packageDocumentation
  */
 
 export { VedikaClient } from './client';
+export { uploadRoomCapture, mergeRoomCaptures } from './vastu-room-capture';
+export type {
+  UploadRoomCaptureOptions,
+  VastuRoomCaptureResult,
+  VastuCaptureMergeResult,
+  VastuRoomScanClient,
+} from './vastu-room-capture';
+export type { VastuRoomCapture, VastuArCaptureMergeRequest } from './types';
 
 export type {
   VastuDrawingSheetRequest, VastuDrawingSheetData, VastuDrawingSheetResponse,
@@ -42,6 +50,11 @@ export type {
   PredictionQuery,
   HoroscopeQuery,
   EnhancedQuestionQuery,
+  QuestionGenerationControls,
+  QuestionSpeed,
+  QuestionResponseMetadata,
+  QuestionFinishReason,
+  QuestionDegradedReason,
   VastuReportQuestion,
   VastuReportContext,
   ChartType,
@@ -54,7 +67,7 @@ export type {
   StrengthType,
   NumerologyType,
   WesternRelationshipType,
-  // TS→Rust transition-tolerant surfaces (3.0.6)
+  // Server-version-tolerant surfaces (3.0.6)
   SynastryAspect,
   WesternRelationshipResult,
   ResponseFormat,
@@ -116,7 +129,7 @@ export type {
   VastuCallOptions,
 } from './types';
 
-// TS→Rust transition-tolerant value helper (3.0.6).
+// Server-version-tolerant value helper (3.0.6).
 export { normalizeWesternRelationship } from './types';
 
 export {
@@ -129,13 +142,16 @@ export {
   ValidationError,
   TimeoutError,
   ServerError,
+  ProUltraUnavailableError,
+  OutputBudgetExhaustedError,
+  QuestionErrorCode,
   NetworkError,
 } from './exceptions';
-export type { VedikaErrorDetails, RateLimitDetails, InsufficientCreditsDetails } from './exceptions';
+export type { VedikaErrorDetails, RateLimitDetails, InsufficientCreditsDetails, ProUltraUnavailableDetails } from './exceptions';
 export type { VedikaRequestOptions, VedikaHttpMethod } from './client';
 
 // Package metadata
-export const VERSION = '3.1.1';
+export const VERSION = '3.2.2';
 export const AUTHOR = 'Vedika Intelligence';
 export const HOMEPAGE = 'https://vedika.io';
 

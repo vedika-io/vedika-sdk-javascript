@@ -2,10 +2,10 @@
 /**
  * Basic AI Astrology Chatbot Example
  *
- * This example demonstrates how to use Vedika's unique AI-powered chatbot
+ * This example demonstrates how to use Vedika's AI-powered chatbot
  * to ask conversational astrology questions.
  *
- * UNIQUE FEATURE: Only Vedika offers AI chatbot queries for astrology!
+ * Conversational astrology queries with structured birth details.
  */
 
 const { VedikaClient } = require('@vedika-io/sdk');
@@ -56,7 +56,7 @@ function showMenu() {
 async function askQuestion(question) {
   try {
     console.log(`\n🤔 Asking: ${question}`);
-    console.log('⏳ Processing (this may take 20-40 seconds)...\n');
+    console.log('⏳ Processing your request...\n');
 
     // Ask the question
     const response = await client.askQuestion({

@@ -87,6 +87,12 @@ export class AuthenticationError extends VedikaAPIError {
  * - Implement exponential backoff
  * - Upgrade your plan for higher limits
  *
+ * The body `code` tells the cases apart. `RATE_LIMIT_EXCEEDED` clears in
+ * seconds and is retried by the client. `PLAN_LIMIT_EXCEEDED` and
+ * `MONTHLY_SPEND_LIMIT_REACHED` (the account's monthly spend limit, which
+ * clears only in the new month or when the owner raises or removes it under
+ * Billing) are never retried: they surface as this error with `code` set.
+ *
  * Rate limits:
  * - Starter: 30 requests/minute
  * - Professional: 60 requests/minute
@@ -298,10 +304,9 @@ export class ValidationError extends VedikaAPIError {
  * - Retry the request
  * - Contact support if issue persists
  *
- * Typical response times:
- * - Simple queries: 2-5 seconds
- * - Standard queries: 5-15 seconds
- * - Complex queries: 20-40 seconds
+ * Response time depends on the route, request complexity, answer length and
+ * selected tier. Configure timeouts for your application; tier names do not
+ * guarantee a fixed duration.
  *
  * @example
  * ```typescript
@@ -344,6 +349,106 @@ export class ServerError extends VedikaAPIError {
     Object.setPrototypeOf(this, ServerError.prototype);
   }
 }
+
+/**
+ * The Pro Ultra tier cannot serve right now (HTTP 503, `code`
+ * `PRO_ULTRA_UNAVAILABLE`).
+ *
+ * The API refuses the request before it bills anything, so you are never
+ * charged, and no other tier answers in its place. It is a `ServerError`, so
+ * existing `instanceof ServerError` handling still catches it.
+ *
+ * The SDK retries it like any other 503: only a request that carries an
+ * idempotency key (every `askQuestion` call does) is sent again, up to
+ * `maxRetries`, and `askQuestionStream` is never retried. If it is still
+ * unavailable after that, wait `retryAfter` seconds, or send the question on
+ * another tier yourself with `speed`.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await client.askQuestion({ question, birthDetails, speed: 'pro-ultra' });
+ * } catch (error) {
+ *   if (error instanceof ProUltraUnavailableError) {
+ *     return client.askQuestion({ question, birthDetails, speed: 'standard' });
+ *   }
+ *   throw error;
+ * }
+ * ```
+ */
+export class ProUltraUnavailableError extends ServerError {
+  /** Seconds the API asked the caller to wait before trying again, when it said. */
+  public retryAfter?: number;
+
+  constructor(message: string = 'Vedika Pro Ultra is temporarily unavailable', details?: ProUltraUnavailableDetails) {
+    super(message, 503, details);
+    this.name = 'ProUltraUnavailableError';
+    if (details?.retryAfter !== undefined) this.retryAfter = details.retryAfter;
+    Object.setPrototypeOf(this, ProUltraUnavailableError.prototype);
+  }
+}
+
+export interface ProUltraUnavailableDetails extends VedikaErrorDetails {
+  retryAfter?: number;
+}
+
+/**
+ * A Pro Ultra question used its whole output budget before any answer text was
+ * written (HTTP 400, `code` `OUTPUT_BUDGET_EXHAUSTED`). You are not charged.
+ *
+ * It is only raised when the request had no birth chart to answer from. With a
+ * chart, the same event is a normal response that reports `degraded: true`,
+ * `degradedReason: 'budget_truncated'` and `finishReason: 'length'` in
+ * `metadata`, and is not charged either.
+ *
+ * The SDK never retries it, and never raises `maxTokens` for you: the same
+ * request would end the same way. Retry with a higher `maxTokens`, or set
+ * `detail: 'brief'`.
+ */
+export class OutputBudgetExhaustedError extends VedikaAPIError {
+  constructor(message: string = 'The output budget for this request was used up before an answer was written', details?: VedikaErrorDetails) {
+    super(message, 400, details);
+    this.name = 'OutputBudgetExhaustedError';
+    Object.setPrototypeOf(this, OutputBudgetExhaustedError.prototype);
+  }
+}
+
+/**
+ * The `code` values the AI question routes return for the delivery tier and
+ * answer-length controls. Compare them with `error.code`:
+ *
+ * ```typescript
+ * if (error instanceof VedikaAPIError && error.code === QuestionErrorCode.CONTROL_UNSUPPORTED_FOR_TIER) { ... }
+ * ```
+ *
+ * | Code | HTTP | Meaning |
+ * | --- | --- | --- |
+ * | `CONTROL_UNSUPPORTED_FOR_TIER` | 400 | A control the selected tier cannot honour, such as `seed` on `pro-ultra`. Refused before billing. |
+ * | `INVALID_DETAIL` | 400 | `detail` is not `brief`, `standard` or `detailed`. |
+ * | `INVALID_STOP` | 400 | `stop` is not 1 to 4 strings of 1 to 64 characters. |
+ * | `STOP_MATCHED_BEFORE_ANSWER` | 400 | A `stop` sequence matched before any answer text was written. Not charged; change or remove `stop`. On a stream it arrives as an `error` event. |
+ * | `DETAIL_BUDGET_CONFLICT` | 400 | `detail: 'detailed'` with a `maxTokens` below 384 (not on `eco`). |
+ * | `OUTPUT_BUDGET_EXHAUSTED` | 400 | See {@link OutputBudgetExhaustedError}. Not charged. |
+ * | `PRO_ULTRA_UNAVAILABLE` | 503 | See {@link ProUltraUnavailableError}. Not charged. |
+ * | `ECO_UNAVAILABLE` | 503 | The `eco` tier cannot serve right now. Not charged. |
+ * | `VERSION_UNAVAILABLE` | 503 | The `'2.5'` standard version cannot serve right now. Not charged. |
+ *
+ * A `version` sent with a speed other than standard, or a `version` other than
+ * `'2'` or `'2.5'`, is a 400 with `code` `VALIDATION_ERROR`.
+ */
+export const QuestionErrorCode = {
+  CONTROL_UNSUPPORTED_FOR_TIER: 'CONTROL_UNSUPPORTED_FOR_TIER',
+  INVALID_DETAIL: 'INVALID_DETAIL',
+  INVALID_STOP: 'INVALID_STOP',
+  STOP_MATCHED_BEFORE_ANSWER: 'STOP_MATCHED_BEFORE_ANSWER',
+  DETAIL_BUDGET_CONFLICT: 'DETAIL_BUDGET_CONFLICT',
+  OUTPUT_BUDGET_EXHAUSTED: 'OUTPUT_BUDGET_EXHAUSTED',
+  PRO_ULTRA_UNAVAILABLE: 'PRO_ULTRA_UNAVAILABLE',
+  ECO_UNAVAILABLE: 'ECO_UNAVAILABLE',
+  VERSION_UNAVAILABLE: 'VERSION_UNAVAILABLE',
+} as const;
+
+export type QuestionErrorCode = (typeof QuestionErrorCode)[keyof typeof QuestionErrorCode];
 
 /**
  * Network connectivity error

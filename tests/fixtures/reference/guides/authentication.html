@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="/js/tracking-init.js" defer></script>
+    <style>html,body{overflow-x:hidden;width:100%}pre{white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere}code{word-break:break-all;overflow-wrap:anywhere}</style>
+    <!-- Microsoft Clarity -->
+
+    <!-- Google Analytics 4 -->
+
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- SEO Meta Tags -->
+    <title>SDK Authentication | Vedika API Documentation</title>
+    <meta name="description" content="Learn how to securely authenticate with Vedika API using API keys. Best practices for key management and security.">
+    <meta name="keywords" content="vedika api key, sdk authentication, api security, javascript auth">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://vedika.io/docs/sdk/authentication">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://vedika.io/docs/sdk/authentication">
+    <meta property="og:title" content="SDK Authentication | Vedika API">
+    <meta property="og:description" content="Secure authentication with Vedika API.">
+
+    <!-- Favicon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/logos/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/logos/vedika-badge-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/logos/vedika-badge-16.png">
+    <link rel="icon" href="/favicon.ico" sizes="48x48">
+
+    <!-- Fonts & Styles -->
+    <link rel="stylesheet" href="/css/tailwind.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="/docs/css/docs.css">
+<meta name="ai-training-opt-out" content="false">
+<meta name="ai-summary" content="SDK Authentication: Learn how to securely authenticate with Vedika API using API keys. Best practices for key management and security. Part of Vedika API (vedika.io) — 1,138 astrology operations with AI chatbot, from $12/month. Vedika is the astrology API with a built-in LLM and a native first-party MCP server — one endpoint answers any question in natural language, and AI agents can use Vedika natively via MCP.">
+<link rel="alternate" hreflang="x-default" href="https://vedika.io/docs/sdk/authentication">
+<link rel="alternate" hreflang="en" href="https://vedika.io/docs/sdk/authentication">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@VedikaAPI">
+<meta name="twitter:title" content="SDK Authentication">
+<meta name="twitter:description" content="Learn how to securely authenticate with Vedika API using API keys. Best practices for key management and security.">
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "SDK Authentication | Vedika API Documentation",
+      "description": "Learn how to securely authenticate with Vedika API using API keys. Best practices for key management and security.",
+      "url": "https://vedika.io/docs/sdk/authentication",
+      "author": {"@type": "Organization", "name": "Vedika Intelligence"},
+      "publisher": {"@type": "Organization", "name": "Vedika Intelligence", "url": "https://vedika.io"}
+    }
+    </script>
+<script src="/js/vedika-scroll-reveal.js?v=1" defer></script>
+
+  <link rel="stylesheet" href="/css/vk-chrome.css"><link rel="stylesheet" href="/css/vk-standard-page.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..600&family=DM+Sans:opsz,wght@9..40,400..700&family=Fragment+Mono&display=swap"><link rel="stylesheet" href="/css/docs-shell.css?v=20261021c"><script src="/js/docs-theme-init.js?v=20261021c"></script><script src="/js/docs-shell.js?v=20261021c" defer></script></head>
+<body class="bg-gray-50">
+<!-- VK-CHROME-HEADER:START -->
+<script>/* Ground probe. Head CSS is applied before body parsing, so the computed
+background is already correct here and the bar never flashes the wrong theme.
+Walks up from body because several pages paint the ground on a wrapper. */
+(function(){try{/* App shells hide the marketing footer. Marked on <html> from the
+path, NOT on <body>: dashboard.html runs a portal-session guard that rewrites the
+document and strips every body attribute, so a body marker silently disappears. */
+if(/^\/(dashboard|admin|analytics|logs|console|enterprise-dashboard)/.test(location.pathname))
+document.documentElement.setAttribute('data-vk-app','');}catch(_){}
+try{var e=document.body,n=8,c;while(e&&n--){c=getComputedStyle(e).backgroundColor;
+var m=c&&c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/);
+if(m&&(m[4]===undefined||+m[4]>0.5)){if(0.2126*+m[1]+0.7152*+m[2]+0.0722*+m[3]<90)
+document.documentElement.setAttribute('data-vkc-theme','dark');return;}e=e.parentElement;}}catch(_){}})();</script>
+<nav class="vkc-nav" aria-label="Primary">
+  <a class="vkc-nav__brand" href="/"><img src="/assets/logos/vedika-badge-64.png" alt="" width="30" height="30"><b>Vedika</b></a>
+  <input class="vkc-nav__toggle" type="checkbox" id="vkc-menu" hidden>
+  <label class="vkc-nav__burger" for="vkc-menu" aria-label="Menu"><span></span></label>
+  <ul class="vkc-nav__links">
+    <li><a href="/docs">Docs</a></li>
+    <li><a href="/pricing">Pricing</a></li>
+    <li><a href="/reports">Reports</a></li>
+    <li><a href="/benchmarks">Benchmarks</a></li>
+    <li><a href="/playground">Playground</a></li>
+    <li><a href="/blog">Blog</a></li>
+  </ul>
+  <div class="vkc-nav__actions">
+    <a class="vkc-nav__ghost" href="/dashboard">Dashboard</a>
+    <a class="vkc-nav__cta" href="/signup">Get API Key</a>
+  </div>
+</nav>
+<!-- VK-CHROME-HEADER:END -->
+    <!-- Navigation -->
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="flex gap-8">
+            <!-- Sidebar -->
+            <aside class="hidden lg:block w-64 flex-shrink-0">
+                <div class="docs-sidebar">
+                    <div class="mb-6">
+                        <h3 class="font-bold text-gray-900 mb-3">JavaScript SDK</h3>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="flex-1 min-w-0">
+                <nav class="breadcrumb mb-6">
+                    <a href="/docs">Docs</a>
+                    <span class="breadcrumb-separator">/</span>
+                    <a href="/docs/sdk/installation">SDK</a>
+                    <span class="breadcrumb-separator">/</span>
+                    <span class="text-gray-900">Authentication</span>
+                </nav>
+
+                <div class="bg-white rounded-xl shadow-sm p-8">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-key text-2xl text-purple-600"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-900">Authentication</h1>
+                            <p class="text-gray-600">Secure API key management</p>
+                        </div>
+                    </div>
+
+                    <!-- API Key Types -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">API Key Types</h2>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm font-medium">SANDBOX</span>
+                                    <code class="text-sm">GET /sandbox/*</code>
+                                </div>
+                                <p class="text-gray-600 text-sm">Use the separate keyless sandbox for fixed examples. Production API keys are paid, with one exception: accounts that have never paid can start a 14-day Professional trial with $5 of API credit from Plans &amp; billing ($60 a month from day 14 unless you cancel).</p>
+                            </div>
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="px-2 py-1 bg-green-100 text-green-800 rounded text-sm font-medium">LIVE</span>
+                                    <code class="text-sm">vk_live_*</code>
+                                </div>
+                                <p class="text-gray-600 text-sm">For production. Real calculations. Pay-per-use billing.</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Basic Authentication -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Basic Authentication</h2>
+                        <pre><code class="language-javascript">// server-client.cjs
+const { VedikaClient } = require('@vedika-io/sdk');
+
+function createVedikaClient() {
+  const apiKey = process.env.VEDIKA_API_KEY;
+  if (!apiKey) {
+    throw new Error('Configure VEDIKA_API_KEY in the server environment.');
+  }
+  return new VedikaClient({ apiKey });
+}
+
+module.exports = { createVedikaClient };</code></pre>
+                        <p class="text-gray-700 mt-4">Calling the REST API directly instead of the SDK? Send the key as <code>Authorization: Bearer &lt;key&gt;</code>. The older <code>X-API-Key</code> header still works until <strong>18 January 2027</strong>, then it stops. New code should use <code>Authorization: Bearer</code>. Calls that still use <code>X-API-Key</code> get <code>Deprecation</code> and <code>Sunset</code> response headers, so you can find them in your own logs.</p>
+                    </section>
+
+                    <!-- Environment Variables -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Environment Variables Setup</h2>
+                        <p class="text-gray-600 mb-4">Create a <code>.env</code> file in your project root:</p>
+
+                        <pre><code class="language-bash"># Configure VEDIKA_API_KEY in your server's protected environment first.
+# Export the existing variable without assigning or revealing its value.
+export VEDIKA_API_KEY</code></pre>
+
+                        <div class="alert alert-warning mt-4">
+                            <i class="fas fa-exclamation-triangle text-lg"></i>
+                            <div>
+                                <strong>Important:</strong> Add <code>.env</code> to your <code>.gitignore</code> file to prevent accidentally committing your API key.
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Different Frameworks -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Framework-Specific Setup</h2>
+
+                        <!-- Node.js -->
+                        <h3 class="text-lg font-semibold text-gray-900 mb-3">Node.js with dotenv</h3>
+                        <pre><code class="language-javascript">import 'dotenv/config';
+import { VedikaClient } from '@vedika-io/sdk';
+const vedika = new VedikaClient({ apiKey: process.env.VEDIKA_API_KEY });</code></pre>
+
+                        <!-- Next.js -->
+                        <h3 class="text-lg font-semibold text-gray-900 mb-3 mt-6">Next.js</h3>
+                        <pre><code class="language-javascript">// .env.local: configure VEDIKA_API_KEY privately on the server.
+import { VedikaClient } from '@vedika-io/sdk';
+const vedika = new VedikaClient({ apiKey: process.env.VEDIKA_API_KEY });
+export async function POST(request) {
+  // Enforce your application's authenticated-user and input rules first.
+  const { birthDetails } = await request.json();
+  return Response.json(await vedika.getBirthChart(birthDetails));
+}</code></pre>
+
+                        <!-- Vite/React -->
+                        <h3 class="text-lg font-semibold text-gray-900 mb-3 mt-6">Vite / React (Browser Proxy)</h3>
+                        <pre><code class="language-javascript">async function fetchChart(birthDetails) {
+  const response = await fetch('/api/astrology/chart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ birthDetails })
+  });
+  if (!response.ok) {
+    throw new Error('Chart request failed.');
+  }
+  return response.json();
+}</code></pre>
+                    </section>
+
+                    <!-- Security Best Practices -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Security Best Practices</h2>
+
+                        <div class="space-y-4">
+                            <div class="flex items-start gap-3 p-4 bg-green-50 rounded-lg">
+                                <i class="fas fa-check-circle text-green-500 mt-1"></i>
+                                <div>
+                                    <h4 class="font-semibold text-gray-900">DO: Use environment variables</h4>
+                                    <p class="text-sm text-gray-600">Store API keys in environment variables, not in code.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-4 bg-green-50 rounded-lg">
+                                <i class="fas fa-check-circle text-green-500 mt-1"></i>
+                                <div>
+                                    <h4 class="font-semibold text-gray-900">DO: Keep keys server-side</h4>
+                                    <p class="text-sm text-gray-600">Never expose API keys in client-side JavaScript. Use backend proxies.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-4 bg-green-50 rounded-lg">
+                                <i class="fas fa-check-circle text-green-500 mt-1"></i>
+                                <div>
+                                    <h4 class="font-semibold text-gray-900">DO: Rotate keys regularly</h4>
+                                    <p class="text-sm text-gray-600">Regenerate keys periodically and after any suspected compromise.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-4 bg-red-50 rounded-lg">
+                                <i class="fas fa-times-circle text-red-500 mt-1"></i>
+                                <div>
+                                    <h4 class="font-semibold text-gray-900">DON'T: Commit keys to git</h4>
+                                    <p class="text-sm text-gray-600">Add .env to .gitignore immediately.</p>
+                                </div>
+                            </div>
+
+                            <div class="flex items-start gap-3 p-4 bg-red-50 rounded-lg">
+                                <i class="fas fa-times-circle text-red-500 mt-1"></i>
+                                <div>
+                                    <h4 class="font-semibold text-gray-900">DON'T: Share keys publicly</h4>
+                                    <p class="text-sm text-gray-600">Never share API keys in forums, GitHub issues, or support tickets.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Backend Proxy Pattern -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Backend Proxy Pattern</h2>
+                        <p class="text-gray-600 mb-4">For frontend apps, mount the backend route behind your application authentication, rate limits and input validation:</p>
+
+                        <pre><code class="language-javascript">// chart-handler.cjs — your application server
+const { VedikaClient, VedikaAPIError } = require('@vedika-io/sdk');
+
+async function handleChart(req, res) {
+  try {
+    const apiKey = process.env.VEDIKA_API_KEY;
+    if (!apiKey) {
+      throw new Error('Configure VEDIKA_API_KEY in the server environment.');
+    }
+    const vedika = new VedikaClient({ apiKey });
+    const chart = await vedika.getBirthChart(req.body.birthDetails);
+    res.json(chart);
+  } catch (error) {
+    const status = error instanceof VedikaAPIError
+      &amp;&amp; Number.isInteger(error.statusCode)
+      &amp;&amp; error.statusCode &gt;= 400 &amp;&amp; error.statusCode &lt;= 599
+      ? error.statusCode : 500;
+    res.status(status).json({ error: 'Chart request failed.' });
+  }
+}
+
+module.exports = { handleChart };
+
+async function fetchChart(birthDetails) {
+  const response = await fetch('/api/astrology/chart', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ birthDetails })
+  });
+  if (!response.ok) {
+    throw new Error('Chart request failed.');
+  }
+  return response.json();
+}</code></pre>
+                    </section>
+
+                    <!-- Key Regeneration -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Key Management</h2>
+                        <p class="text-gray-600 mb-4">Manage your API keys in the <a href="/dashboard" class="text-indigo-600 hover:underline">Vedika Dashboard</a>:</p>
+
+                        <ul class="space-y-2 text-gray-600">
+                            <li class="flex items-center gap-2">
+                                <i class="fas fa-plus-circle text-green-500"></i>
+                                <span><strong>Create:</strong> Generate new API keys</span>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <i class="fas fa-sync text-blue-500"></i>
+                                <span><strong>Rotate:</strong> Regenerate existing keys</span>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <i class="fas fa-trash text-red-500"></i>
+                                <span><strong>Revoke:</strong> Delete compromised keys</span>
+                            </li>
+                            <li class="flex items-center gap-2">
+                                <i class="fas fa-chart-bar text-purple-500"></i>
+                                <span><strong>Monitor:</strong> Track usage per key</span>
+                            </li>
+                        </ul>
+                    </section>
+
+                    <!-- Testing -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Testing Authentication</h2>
+                        <pre><code class="language-javascript">import { VedikaClient, AuthenticationError } from '@vedika-io/sdk';
+try {
+  const vedika = new VedikaClient({ apiKey: process.env.VEDIKA_API_KEY });
+  console.log('Client constructed; server key validity is not checked.');
+} catch (error) {
+  if (!(error instanceof AuthenticationError)) throw error;
+  console.error('Configure a server-side API key.');
+}</code></pre>
+                    </section>
+
+                    <!-- Next Steps -->
+                    <section class="border-t pt-8">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Next Steps</h2>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <a href="/docs/sdk/birth-chart" class="block p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                                <i class="fas fa-star text-indigo-600 mb-2"></i>
+                                <h4 class="font-semibold text-gray-900">Birth Chart API</h4>
+                                <p class="text-sm text-gray-600">Generate horoscopes</p>
+                            </a>
+                            <a href="/docs/sdk/error-handling" class="block p-4 bg-red-50 rounded-lg hover:bg-red-100 transition-colors">
+                                <i class="fas fa-exclamation-circle text-red-600 mb-2"></i>
+                                <h4 class="font-semibold text-gray-900">Error Handling</h4>
+                                <p class="text-sm text-gray-600">Handle auth errors gracefully</p>
+                            </a>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Footer -->
+
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <!-- Analytics Helper (Error Handling) -->
+    <script src="/js/analytics-helper.js" defer></script>
+    <!-- Production Logger -->
+<script src="/js/conversion-optimizer.js?v=3" defer></script>
+    <script src="/js/vedika-support-widget.js" defer></script>
+<!-- VK-CHROME-FOOTER:START -->
+<!-- Every link, address and legal line below is copied from the footer
+     production already serves. The first version of this footer carried five
+     links per column and dropped the legal entity, the registered address, the
+     support hours and the phone number. The live-overwrite guard caught it
+     before publish, on security.html and forty pages like it. Nothing here is
+     invented; when this changes, change it in the shared chrome partial and
+     re-run the chrome pass rather than editing pages one at a time. -->
+<footer class="vkc-foot">
+  <div class="vkc-foot__grid">
+    <div>
+      <a class="vkc-foot__brand" href="/"><img src="/assets/logos/vedika-badge-64.png" alt="" width="28" height="28"><b>Vedika</b></a>
+      <p class="vkc-foot__note">Purpose-built AI for astrology applications</p>
+      <p class="vkc-foot__note">Reach us at <a href="mailto:support@vedika.io">support@vedika.io</a><br>
+      Call <a href="tel:+917083408408">+91-7083408408</a> (Mon&ndash;Sat, 10&nbsp;AM&nbsp;&ndash;&nbsp;7&nbsp;PM IST) &middot; Email <a href="mailto:support@vedika.io">support@vedika.io</a></p>
+    </div>
+    <div>
+      <h4>Product</h4>
+      <ul>
+        <li><a href="/quickstart">Quickstart</a></li>
+        <li><a href="/docs">Documentation</a></li>
+        <li><a href="/api-explorer">API Explorer</a></li>
+        <li><a href="/sdks">SDKs</a></li>
+        <li><a href="/mcp">MCP Server</a></li>
+        <li><a href="/webhooks">Webhooks</a></li>
+        <li><a href="/astrology-api-for-apps">API for Apps</a></li>
+        <li><a href="/app-development">App Development</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/api-reference">API Reference</a></li>
+        <li><a href="/reports">Reports</a></li>
+        <li><a href="/sandbox">Sandbox</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Resources</h4>
+      <ul>
+        <li><a href="/case-studies">Case Studies</a></li>
+        <li><a href="/matrimony-api">Matrimony API</a></li>
+        <li><a href="/roadmap">Roadmap</a></li>
+        <li><a href="/changelog">Changelog</a></li>
+        <li><a href="/status">Status</a></li>
+        <li><a href="/support">Support</a></li>
+        <li><a href="/contact">Contact Us</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="/benchmarks">Benchmarks</a></li>
+        <li><a href="/research">Research</a></li>
+        <li><a href="/compare">Compare</a></li>
+        <li><a href="/guides">Guides</a></li>
+        <li><a href="/faq">FAQ</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Company</h4>
+      <ul>
+        <li><a href="/about">About</a></li>
+        <li><a href="/about#team">Team</a></li>
+        <li><a href="/enterprise">Enterprise</a></li>
+        <li><a href="/partners">Partners</a></li>
+        <li><a href="/security">Security</a></li>
+        <li><a href="/sla">SLA</a></li>
+        <li><a href="/privacy">Privacy</a></li>
+        <li><a href="/terms">Terms</a></li>
+        <li><a href="/refund">Refund Policy</a></li>
+        <li><a href="/dashboard">Dashboard</a></li>
+        <li><a href="mailto:enterprise@vedika.io">Enterprise sales</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="vkc-foot__social">
+    <a href="https://x.com/VedikaAPI" rel="noopener" aria-label="X">X</a>
+    <a href="https://www.linkedin.com/company/vedika-api/" rel="noopener" aria-label="LinkedIn">LinkedIn</a>
+    <a href="https://www.youtube.com/@VedikaAPI" rel="noopener" aria-label="YouTube">YouTube</a>
+    <a href="https://www.instagram.com/vedika.api" rel="noopener" aria-label="Instagram">Instagram</a>
+    <a href="https://www.threads.com/@vedika.api" rel="noopener" aria-label="Threads">Threads</a>
+    <a href="https://www.facebook.com/share/1F8hD53g2L/" rel="noopener" aria-label="Facebook">Facebook</a>
+    <a href="https://www.postman.com/vedikaai/workspace/intelligence-platform/collection/50475884-27902efa-15c1-4d70-8dd3-72e874cc9be0" rel="noopener">Postman</a>
+  </div>
+  <div class="vkc-foot__base">
+    <span>&copy; 2026 Vedika Intelligence. All rights reserved. | Computed context | Published pricing | Built for astrology products</span>
+  </div>
+  <div class="vkc-foot__base vkc-foot__legal">
+    <span>Operated by XALEN Technology Private Limited &middot; Pune, Maharashtra, India &middot; <a href="mailto:support@vedika.io">support@vedika.io</a></span>
+    <a href="https://www.linkedin.com/in/abhishek-raj-vedika" rel="noopener">Made by Abhishek Raj</a>
+  </div>
+</footer>
+<!-- VK-CHROME-FOOTER:END -->
+</body>
+</html>

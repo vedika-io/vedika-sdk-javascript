@@ -1,6 +1,6 @@
 const { VedikaClient } = require('../dist');
 
-// b2c#31 / sdk-pkg#19: `maxRetries` was declared in VedikaClientOptions but the
+// `maxRetries` was declared in VedikaClientOptions but the
 // constructor never used it — every call was single-shot regardless of the
 // option. These tests pin the actual retry behavior now that it's wired up.
 //
@@ -192,7 +192,7 @@ describe('paid Vastu GET request identity', () => {
   });
 });
 
-// sdk-pkg#28: billing/meta are siblings of `data` in the raw envelope, not
+// billing/meta are siblings of `data` in the raw envelope, not
 // nested inside it, so the response interceptor's unwrap drops them from the
 // normal return value — they're recoverable only via the non-enumerable
 // `__envelope` the interceptor attaches. This was true at runtime before this

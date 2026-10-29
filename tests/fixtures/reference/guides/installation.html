@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="/js/tracking-init.js" defer></script>
+    <style>html,body{overflow-x:hidden;width:100%}pre{white-space:pre-wrap;word-break:break-all;overflow-wrap:anywhere}code{word-break:break-all;overflow-wrap:anywhere}</style>
+    <!-- Microsoft Clarity -->
+
+    <!-- Google Analytics 4 -->
+
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- SEO Meta Tags -->
+    <title>JavaScript SDK Installation | Vedika API Documentation</title>
+    <meta name="description" content="Install the official Vedika JavaScript SDK via npm. Get started with astrology API integration in minutes.">
+    <meta name="keywords" content="vedika sdk install, npm vedika, javascript astrology api, nodejs sdk installation">
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+    <link rel="canonical" href="https://vedika.io/docs/sdk/installation">
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://vedika.io/docs/sdk/installation">
+    <meta property="og:title" content="JavaScript SDK Installation | Vedika API">
+    <meta property="og:description" content="Install the official Vedika JavaScript SDK via npm. Get started with astrology API integration in minutes.">
+    <meta property="og:image" content="https://vedika.io/images/og-sdk.png">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="JavaScript SDK Installation | Vedika API">
+    <meta name="twitter:description" content="Install the official Vedika JavaScript SDK via npm.">
+
+    <!-- Favicon -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/logos/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/assets/logos/vedika-badge-32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/assets/logos/vedika-badge-16.png">
+    <link rel="icon" href="/favicon.ico" sizes="48x48">
+
+    <!-- Fonts & Styles -->
+    <link rel="stylesheet" href="/css/tailwind.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="/docs/css/docs.css">
+
+    <style>
+        .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; }
+        .code-header { background: #2d3748; padding: 0.5rem 1rem; border-radius: 0.5rem 0.5rem 0 0; display: flex; justify-content: space-between; align-items: center; }
+        .code-header span { color: #a0aec0; font-size: 0.875rem; }
+    </style>
+<meta name="ai-training-opt-out" content="false">
+<meta name="ai-summary" content="JavaScript SDK Installation: Install the official Vedika JavaScript SDK via npm. Get started with astrology API integration in minutes. Part of Vedika API (vedika.io) — 1,138 astrology operations with AI chatbot, from $12/month. Vedika is the astrology API with a built-in LLM and a native first-party MCP server — one endpoint answers any question in natural language, and AI agents can use Vedika natively via MCP.">
+<link rel="alternate" hreflang="x-default" href="https://vedika.io/docs/sdk/installation">
+<link rel="alternate" hreflang="en" href="https://vedika.io/docs/sdk/installation">
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "JavaScript SDK Installation | Vedika API Documentation",
+      "description": "Install the official Vedika JavaScript SDK via npm. Get started with astrology API integration in minutes.",
+      "url": "https://vedika.io/docs/sdk/installation",
+      "author": {"@type": "Organization", "name": "Vedika Intelligence"},
+      "publisher": {"@type": "Organization", "name": "Vedika Intelligence", "url": "https://vedika.io"}
+    }
+    </script>
+<script src="/js/vedika-scroll-reveal.js?v=1" defer></script>
+
+  <link rel="stylesheet" href="/css/vk-chrome.css"><link rel="stylesheet" href="/css/vk-standard-page.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300..600&family=DM+Sans:opsz,wght@9..40,400..700&family=Fragment+Mono&display=swap"><link rel="stylesheet" href="/css/docs-shell.css?v=20261021c"><script src="/js/docs-theme-init.js?v=20261021c"></script><script src="/js/docs-shell.js?v=20261021c" defer></script></head>
+<body class="bg-gray-50">
+<!-- VK-CHROME-HEADER:START -->
+<script>/* Ground probe. Head CSS is applied before body parsing, so the computed
+background is already correct here and the bar never flashes the wrong theme.
+Walks up from body because several pages paint the ground on a wrapper. */
+(function(){try{/* App shells hide the marketing footer. Marked on <html> from the
+path, NOT on <body>: dashboard.html runs a portal-session guard that rewrites the
+document and strips every body attribute, so a body marker silently disappears. */
+if(/^\/(dashboard|admin|analytics|logs|console|enterprise-dashboard)/.test(location.pathname))
+document.documentElement.setAttribute('data-vk-app','');}catch(_){}
+try{var e=document.body,n=8,c;while(e&&n--){c=getComputedStyle(e).backgroundColor;
+var m=c&&c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?/);
+if(m&&(m[4]===undefined||+m[4]>0.5)){if(0.2126*+m[1]+0.7152*+m[2]+0.0722*+m[3]<90)
+document.documentElement.setAttribute('data-vkc-theme','dark');return;}e=e.parentElement;}}catch(_){}})();</script>
+<nav class="vkc-nav" aria-label="Primary">
+  <a class="vkc-nav__brand" href="/"><img src="/assets/logos/vedika-badge-64.png" alt="" width="30" height="30"><b>Vedika</b></a>
+  <input class="vkc-nav__toggle" type="checkbox" id="vkc-menu" hidden>
+  <label class="vkc-nav__burger" for="vkc-menu" aria-label="Menu"><span></span></label>
+  <ul class="vkc-nav__links">
+    <li><a href="/docs">Docs</a></li>
+    <li><a href="/pricing">Pricing</a></li>
+    <li><a href="/reports">Reports</a></li>
+    <li><a href="/benchmarks">Benchmarks</a></li>
+    <li><a href="/playground">Playground</a></li>
+    <li><a href="/blog">Blog</a></li>
+  </ul>
+  <div class="vkc-nav__actions">
+    <a class="vkc-nav__ghost" href="/dashboard">Dashboard</a>
+    <a class="vkc-nav__cta" href="/signup">Get API Key</a>
+  </div>
+</nav>
+<!-- VK-CHROME-HEADER:END -->
+    <!-- Navigation -->
+
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="flex gap-8">
+            <!-- Sidebar -->
+            <aside class="hidden lg:block w-64 flex-shrink-0">
+                <div class="docs-sidebar">
+                    <div class="mb-6">
+                        <h3 class="font-bold text-gray-900 mb-3">JavaScript SDK</h3>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="font-bold text-gray-900 mb-3">Python SDK</h3>
+                    </div>
+                    <div class="mb-6">
+                        <h3 class="font-bold text-gray-900 mb-3">Integrations</h3>
+                        <nav class="space-y-1">
+                            <a href="/docs/sdk/react-integration" class="docs-nav-item">React</a>
+                            <a href="/docs/sdk/nextjs-integration" class="docs-nav-item">Next.js</a>
+                            <a href="/docs/sdk/nodejs-integration" class="docs-nav-item">Node.js</a>
+                            <a href="/docs/sdk/flask-integration" class="docs-nav-item">Flask</a>
+                            <a href="/docs/sdk/django-integration" class="docs-nav-item">Django</a>
+                        </nav>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="flex-1 min-w-0">
+                <!-- Breadcrumb -->
+                <nav class="breadcrumb mb-6">
+                    <a href="/docs">Docs</a>
+                    <span class="breadcrumb-separator">/</span>
+                    <a href="/docs/sdk/installation">SDK</a>
+                    <span class="breadcrumb-separator">/</span>
+                    <span class="text-gray-900">Installation</span>
+                </nav>
+
+                <div class="bg-white rounded-xl shadow-sm p-8">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center">
+                            <i class="fab fa-js-square text-2xl text-yellow-600"></i>
+                        </div>
+                        <div>
+                            <h1 class="text-3xl font-bold text-gray-900">JavaScript SDK Installation</h1>
+                            <p class="text-gray-600">@vedika-io/sdk</p>
+                        </div>
+                    </div>
+
+                    <!-- Version Badge -->
+                    <div class="flex items-center gap-4 mb-8">
+                        <span class="version-badge">
+                            <i class="fas fa-tag mr-1"></i>Current SDK
+                        </span>
+                        <span class="text-sm text-gray-500">Last updated: January 2026</span>
+                    </div>
+
+                    <!-- Quick Install -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Quick Install</h2>
+                        <p class="text-gray-600 mb-4">Install the Vedika SDK using your preferred package manager:</p>
+
+                        <!-- npm -->
+                        <div class="mb-4">
+                            <div class="code-header">
+                                <span>npm</span>
+                                <button class="copy-btn text-gray-400 hover:text-white" onclick="copyCode(this, 'npm install @vedika-io/sdk')">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <pre class="!mt-0 !rounded-t-none"><code class="language-bash">npm install @vedika-io/sdk</code></pre>
+                        </div>
+
+                        <!-- yarn -->
+                        <div class="mb-4">
+                            <div class="code-header">
+                                <span>yarn</span>
+                                <button class="copy-btn text-gray-400 hover:text-white" onclick="copyCode(this, 'yarn add @vedika-io/sdk')">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <pre class="!mt-0 !rounded-t-none"><code class="language-bash">yarn add @vedika-io/sdk</code></pre>
+                        </div>
+
+                        <!-- pnpm -->
+                        <div class="mb-4">
+                            <div class="code-header">
+                                <span>pnpm</span>
+                                <button class="copy-btn text-gray-400 hover:text-white" onclick="copyCode(this, 'pnpm add @vedika-io/sdk')">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                            <pre class="!mt-0 !rounded-t-none"><code class="language-bash">pnpm add @vedika-io/sdk</code></pre>
+                        </div>
+                    </section>
+
+                    <!-- Requirements -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Requirements</h2>
+                        <div class="bg-gray-50 rounded-lg p-6">
+                            <table class="w-full">
+                                <tbody>
+                                    <tr class="border-b border-gray-200">
+                                        <td class="py-3 font-medium text-gray-900">Node.js</td>
+                                        <td class="py-3 text-gray-600">&gt;= 18.0.0</td>
+                                    </tr>
+                                    <tr class="border-b border-gray-200">
+                                        <td class="py-3 font-medium text-gray-900">TypeScript</td>
+                                        <td class="py-3 text-gray-600">&gt;= 4.7 (optional, types included)</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="py-3 font-medium text-gray-900">Browser Support</td>
+                                        <td class="py-3 text-gray-600">ES2020+ (Chrome 80+, Firefox 74+, Safari 14+)</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+
+                    <!-- Verify Installation -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Verify Installation</h2>
+                        <p class="text-gray-600 mb-4">After installation, verify the SDK is working:</p>
+
+                        <pre><code class="language-javascript">const { VedikaClient, VERSION } = require('@vedika-io/sdk');
+
+// Check version
+console.log(VERSION);
+
+// Initialize client
+const vedika = new VedikaClient({
+  apiKey: process.env.VEDIKA_API_KEY
+});
+
+// Construction does not verify key validity with the server.
+console.log(typeof VedikaClient);</code></pre>
+                    </section>
+
+                    <!-- TypeScript Setup -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">TypeScript Setup</h2>
+                        <p class="text-gray-600 mb-4">The SDK includes TypeScript definitions out of the box. No additional setup required.</p>
+
+                        <pre><code class="language-typescript">import { VedikaClient } from '@vedika-io/sdk';
+import type { BirthChartQuery } from '@vedika-io/sdk';
+
+async function main() {
+  const apiKey = process.env.VEDIKA_API_KEY;
+  if (!apiKey) throw new Error('Set VEDIKA_API_KEY on the server');
+
+  const vedika = new VedikaClient({
+    apiKey,
+    timeout: 30000,
+    maxRetries: 3
+  });
+
+  const input: BirthChartQuery = {
+    datetime: '1990-05-15T10:30:00+05:30',
+    latitude: 28.6139,
+    longitude: 77.2090,
+    timezone: '+05:30'
+  };
+  const chart = await vedika.getBirthChart(input);
+  return chart;
+}
+
+main().catch(() =&gt; {
+  console.error('Calculation failed');
+  process.exitCode = 1;
+});</code></pre>
+
+                        <div class="alert alert-info mt-4">
+                            <i class="fas fa-info-circle text-lg"></i>
+                            <div>
+                                <strong>Recommended tsconfig.json settings:</strong>
+                                <code class="text-sm block mt-2">"moduleResolution": "bundler"</code> or <code>"node16"</code>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- CDN Usage -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Browser Requests Through Your Server</h2>
+                        <p class="text-gray-600 mb-4">Keep the SDK and API key on your authenticated application server. Browsers call its same-origin route:</p>
+
+                        <pre><code class="language-html">const response = await fetch('/api/birth-chart', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    datetime: '1990-05-15T10:30:00+05:30',
+    latitude: 28.6139,
+    longitude: 77.2090,
+    timezone: '+05:30'
+  })
+});
+if (!response.ok) throw new Error('Your backend returned an error');
+const chart = await response.json();</code></pre>
+
+                        <div class="alert alert-warning mt-4">
+                            <i class="fas fa-exclamation-triangle text-lg"></i>
+                            <div>
+                                <strong>Security Warning:</strong> Never expose your API key in client-side code for production apps. Use a backend proxy instead.
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Environment Variables -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Environment Variables</h2>
+                        <p class="text-gray-600 mb-4">Your server explicitly passes its environment configuration to the SDK:</p>
+
+                        <pre><code class="language-bash"># Server environment; the API key value stays private
+# Configure VEDIKA_API_KEY in your protected server environment first.
+# Export the existing variable without assigning or revealing its value.
+export VEDIKA_API_KEY
+VEDIKA_BASE_URL=https://api.vedika.io
+VEDIKA_TIMEOUT=60000
+VEDIKA_MAX_RETRIES=3</code></pre>
+
+                        <pre><code class="language-javascript">import { VedikaClient } from '@vedika-io/sdk';
+
+const apiKey = process.env.VEDIKA_API_KEY;
+if (!apiKey) throw new Error('Set VEDIKA_API_KEY on the server');
+
+const vedika = new VedikaClient({
+  apiKey,
+  baseUrl: process.env.VEDIKA_BASE_URL,
+  timeout: Number(process.env.VEDIKA_TIMEOUT ?? 60000),
+  maxRetries: Number(process.env.VEDIKA_MAX_RETRIES ?? 3)
+});</code></pre>
+                    </section>
+
+                    <!-- Package Contents -->
+                    <section class="mb-10">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Package Contents</h2>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <h4 class="font-semibold text-gray-900 mb-2">Main Exports</h4>
+                                <ul class="text-sm text-gray-600 space-y-1">
+                                    <li><code>VedikaClient</code> - Main client class</li>
+                                    <li><code>VedikaAPIError</code> - Error types</li>
+                                    <li><code>VERSION</code> - Package version</li>
+                                </ul>
+                            </div>
+                            <div class="bg-gray-50 rounded-lg p-4">
+                                <h4 class="font-semibold text-gray-900 mb-2">Type Exports</h4>
+                                <ul class="text-sm text-gray-600 space-y-1">
+                                    <li><code>BirthChart</code> - Chart response type</li>
+                                    <li><code>CompatibilityQuery</code> - Match request type</li>
+                                    <li><code>BirthChartQuery</code> - Chart request type</li>
+                                    <li><code>DashaResponse</code> - Dasha type</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Next Steps -->
+                    <section class="border-t pt-8">
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4">Next Steps</h2>
+                        <div class="grid md:grid-cols-2 gap-4">
+                            <a href="/docs/sdk/quickstart" class="block p-4 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas fa-rocket text-indigo-600"></i>
+                                    <div>
+                                        <h4 class="font-semibold text-gray-900">Quickstart Guide</h4>
+                                        <p class="text-sm text-gray-600">Your first API call in 5 minutes</p>
+                                    </div>
+                                </div>
+                            </a>
+                            <a href="/docs/sdk/authentication" class="block p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <i class="fas fa-key text-purple-600"></i>
+                                    <div>
+                                        <h4 class="font-semibold text-gray-900">Authentication</h4>
+                                        <p class="text-sm text-gray-600">API key setup and best practices</p>
+                                    </div>
+                                </div>
+                            </a>
+                        </div>
+                    </section>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Footer -->
+
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script>
+        function copyCode(btn, text) {
+            navigator.clipboard.writeText(text);
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            setTimeout(() => btn.innerHTML = '<i class="fas fa-copy"></i>', 2000);
+        }
+    </script>
+    <!-- Analytics Helper (Error Handling) -->
+    <script src="/js/analytics-helper.js" defer></script>
+    <!-- Production Logger -->
+<script src="/js/conversion-optimizer.js?v=3" defer></script>
+    <script src="/js/vedika-support-widget.js" defer></script>
+<!-- VK-CHROME-FOOTER:START -->
+<!-- Every link, address and legal line below is copied from the footer
+     production already serves. The first version of this footer carried five
+     links per column and dropped the legal entity, the registered address, the
+     support hours and the phone number. The live-overwrite guard caught it
+     before publish, on security.html and forty pages like it. Nothing here is
+     invented; when this changes, change it in the shared chrome partial and
+     re-run the chrome pass rather than editing pages one at a time. -->
+<footer class="vkc-foot">
+  <div class="vkc-foot__grid">
+    <div>
+      <a class="vkc-foot__brand" href="/"><img src="/assets/logos/vedika-badge-64.png" alt="" width="28" height="28"><b>Vedika</b></a>
+      <p class="vkc-foot__note">Purpose-built AI for astrology applications</p>
+      <p class="vkc-foot__note">Reach us at <a href="mailto:support@vedika.io">support@vedika.io</a><br>
+      Call <a href="tel:+917083408408">+91-7083408408</a> (Mon&ndash;Sat, 10&nbsp;AM&nbsp;&ndash;&nbsp;7&nbsp;PM IST) &middot; Email <a href="mailto:support@vedika.io">support@vedika.io</a></p>
+    </div>
+    <div>
+      <h4>Product</h4>
+      <ul>
+        <li><a href="/quickstart">Quickstart</a></li>
+        <li><a href="/docs">Documentation</a></li>
+        <li><a href="/api-explorer">API Explorer</a></li>
+        <li><a href="/sdks">SDKs</a></li>
+        <li><a href="/mcp">MCP Server</a></li>
+        <li><a href="/webhooks">Webhooks</a></li>
+        <li><a href="/astrology-api-for-apps">API for Apps</a></li>
+        <li><a href="/app-development">App Development</a></li>
+        <li><a href="/pricing">Pricing</a></li>
+        <li><a href="/api-reference">API Reference</a></li>
+        <li><a href="/reports">Reports</a></li>
+        <li><a href="/sandbox">Sandbox</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Resources</h4>
+      <ul>
+        <li><a href="/case-studies">Case Studies</a></li>
+        <li><a href="/matrimony-api">Matrimony API</a></li>
+        <li><a href="/roadmap">Roadmap</a></li>
+        <li><a href="/changelog">Changelog</a></li>
+        <li><a href="/status">Status</a></li>
+        <li><a href="/support">Support</a></li>
+        <li><a href="/contact">Contact Us</a></li>
+        <li><a href="/blog">Blog</a></li>
+        <li><a href="/benchmarks">Benchmarks</a></li>
+        <li><a href="/research">Research</a></li>
+        <li><a href="/compare">Compare</a></li>
+        <li><a href="/guides">Guides</a></li>
+        <li><a href="/faq">FAQ</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Company</h4>
+      <ul>
+        <li><a href="/about">About</a></li>
+        <li><a href="/about#team">Team</a></li>
+        <li><a href="/enterprise">Enterprise</a></li>
+        <li><a href="/partners">Partners</a></li>
+        <li><a href="/security">Security</a></li>
+        <li><a href="/sla">SLA</a></li>
+        <li><a href="/privacy">Privacy</a></li>
+        <li><a href="/terms">Terms</a></li>
+        <li><a href="/refund">Refund Policy</a></li>
+        <li><a href="/dashboard">Dashboard</a></li>
+        <li><a href="mailto:enterprise@vedika.io">Enterprise sales</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="vkc-foot__social">
+    <a href="https://x.com/VedikaAPI" rel="noopener" aria-label="X">X</a>
+    <a href="https://www.linkedin.com/company/vedika-api/" rel="noopener" aria-label="LinkedIn">LinkedIn</a>
+    <a href="https://www.youtube.com/@VedikaAPI" rel="noopener" aria-label="YouTube">YouTube</a>
+    <a href="https://www.instagram.com/vedika.api" rel="noopener" aria-label="Instagram">Instagram</a>
+    <a href="https://www.threads.com/@vedika.api" rel="noopener" aria-label="Threads">Threads</a>
+    <a href="https://www.facebook.com/share/1F8hD53g2L/" rel="noopener" aria-label="Facebook">Facebook</a>
+    <a href="https://www.postman.com/vedikaai/workspace/intelligence-platform/collection/50475884-27902efa-15c1-4d70-8dd3-72e874cc9be0" rel="noopener">Postman</a>
+  </div>
+  <div class="vkc-foot__base">
+    <span>&copy; 2026 Vedika Intelligence. All rights reserved. | Computed context | Published pricing | Built for astrology products</span>
+  </div>
+  <div class="vkc-foot__base vkc-foot__legal">
+    <span>Operated by XALEN Technology Private Limited &middot; Pune, Maharashtra, India &middot; <a href="mailto:support@vedika.io">support@vedika.io</a></span>
+    <a href="https://www.linkedin.com/in/abhishek-raj-vedika" rel="noopener">Made by Abhishek Raj</a>
+  </div>
+</footer>
+<!-- VK-CHROME-FOOTER:END -->
+</body>
+</html>

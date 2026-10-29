@@ -2,7 +2,7 @@
  * Credential routing — the API key must only ever reach a Vedika origin.
  *
  * The defect these tests pin: `new VedikaClient({ apiKey, baseUrl })` binds the
- * Bearer key (and the legacy X-API-Key) to whatever origin the caller supplies.
+ * Bearer key to whatever origin the caller supplies.
  * Before this change an HTTPS attacker origin was accepted, so a bad config or a
  * compromised env var shipped a live `vk_live_*` key off-domain on the first call.
  *
@@ -35,14 +35,14 @@ describe('credential routing: baseUrl origin policy', () => {
   // ── CONTROL ──────────────────────────────────────────────────────────────
   // Proves the harness can observe a credential on the wire at all. Without
   // this, every "the key did not leak" assertion below would be unfalsifiable.
-  test('CONTROL: the configured key really does travel as a wire header', async () => {
+  test('CONTROL: the configured key really does travel as a Bearer wire header', async () => {
     const { server, seen, port } = await startRecorder();
     try {
       const client = new VedikaClient({ apiKey: KEY, baseUrl: `http://127.0.0.1:${port}` });
       await client.getHoroscope('aries');
       expect(seen).toHaveLength(1);
       expect(seen[0].headers.authorization).toBe(`Bearer ${KEY}`);
-      expect(seen[0].headers['x-api-key']).toBe(KEY);
+      expect(seen[0].headers['x-api-key']).toBeUndefined();
     } finally {
       server.close();
     }
