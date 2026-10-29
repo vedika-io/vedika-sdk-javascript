@@ -3,8 +3,8 @@ const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { VedikaClient } = require('../dist');
 
-// The 11 GET-only reference tables + the GET+POST dual, from the Rust router
-// (VASTU_GET_REFERENCE_ROUTES + VASTU_DUAL_ROUTE in vedika-v2/src/vastu.rs).
+// The 11 GET-only reference tables + the GET+POST dual, from the server's
+// Vastu router.
 const GET_OPS = [
   'reference/directions/8',
   'reference/directions/16',

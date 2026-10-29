@@ -5,6 +5,84 @@ All notable changes to the Vedika JavaScript SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.2] - 2026-10-29
+
+### Changed
+- Package descriptions and usage documentation describe supported capabilities without claims about other providers.
+- Language guidance points to operation and plan coverage in the API reference.
+- Response-time guidance describes request and tier dependence rather than promising fixed duration ranges.
+
+## [3.2.1] - 2026-10-24
+
+### Added
+- `QuestionErrorCode.STOP_MATCHED_BEFORE_ANSWER`: the 400 the API returns when a `stop` sequence matches before any answer text is written. It is not charged and not retried; compare `error.code` with it. On a stream it arrives as an `error` event.
+- Vastu delete responses: optional receipt fields (`receiptId`, `receiptStatus`, `readReceipt`, and `deletionReceipt` on a scan delete) are typed.
+
+### Changed
+- Documentation and types: `metadata.finishReason` and `metadata.truncated` are on every answer, whatever you sent. On Vedika Pro Ultra a `stop` match reads `stopSequence`; no follow-up text is added after your stop. `detail` on Pro Ultra also sets how much reasoning the model applies before it writes.
+- Documentation: a cut-off stream is not charged, the same as a cut-off JSON answer. Its `completed` frame carries `degraded` and `degradedReason` as well as `finishReason` and `truncated`. The 3.2.0 text said a stream that had already delivered text could be billed; the API no longer does that, so the docs now say so.
+
+## [3.2.0] - 2026-10-23
+
+### Behaviour change
+- Vastu room-placement judgments change in the API with the release that carries rules snapshot `vastu-rules-2026-10-18`. `rulesVersion` then accepts `vastu-rules-2026-10-18` (current), `vastu-rules-2026-10-04` and `vastu-rules-2026-09-23`. `vastu-rules-2026-09-23` is deprecated but stays accepted, with its frozen placement judgments, until its sunset on 2027-01-31; move to `vastu-rules-2026-10-18`. A response that applied it (for a batch, one in which an item was evaluated under it, even if that item was then rejected) carries `Deprecation: @1792281600` (an RFC 9745 date, 2026-10-18), `Sunset: Sun, 31 Jan 2027 00:00:00 GMT` and `Link: <https://vedika.io/changelog>; rel="deprecation"`; other versions carry none. Async job results carry no HTTP headers; read `rulesVersion` in each item result. Unknown version strings still return 400 `Unsupported rulesVersion` before billing. Receipts issued under any of the three stay verifiable. Requests with no `rulesVersion` use `vastu-rules-2026-10-18`.
+- Table changes in `vastu-rules-2026-10-18`, all labelled convention (no verse grades these rooms): a living room in the centre is acceptable (the advice to keep the centre clear stays in `guidance`); a dining room has no forbidden zone, and SW, SE and centre are acceptable with advisory notes in `guidance`; a study in the N is ideal. Zones that were defects return no `defect` and no `remedy`. The per-zone `prescribedRooms` and `forbiddenRooms` lists change to match. Update any code or stored expectation that treats those placements as defects, or pins the earlier snapshot ids.
+- Table change in `vastu-rules-2026-10-20` (one placement, labelled convention): a staircase in the East is acceptable instead of a moderate defect, with the advice to keep the East open to light as a note in `guidance`; the other eight staircase zones and every other room are unchanged from `vastu-rules-2026-10-18`. Pin `vastu-rules-2026-10-18` to keep the earlier East judgment; no version is deprecated by this change.
+
+### Fixed
+- A 429 with body `code` `MONTHLY_SPEND_LIMIT_REACHED` (the account's monthly spend limit) is never retried. It surfaces at once as a `RateLimitError` with `code` set, since it clears only in the new month or when the owner raises or removes the limit under Billing.
+
+### Added
+- `speed: 'pro-ultra'` selects the Pro Ultra tier. `EnhancedQuestionQuery.speed` and `VastuReportQuestion.speed` were typed `'standard' | 'fast' | 'eco'`, so TypeScript callers could not pass it; both now use the exported `QuestionSpeed` type.
+- Answer controls on the AI question routes, typed by the new exported `QuestionGenerationControls` and available on `askQuestion`, `askVastuReport` and `askQuestionStream`: `version` (`'2.5'` default or `'2'`, retiring; standard speed only), `detail` (`'brief'`, `'standard'` or `'detailed'`), `maxTokens` (integer output-token limit), `stop` (one string, or 1 to 4 strings of 1 to 64 characters) and `seed` (integer, best effort). Before, `askQuestion` and `askVastuReport` dropped these fields silently. Each is sent only when you set it, and the API refuses an unsupported control before billing with a coded 400, such as `CONTROL_UNSUPPORTED_FOR_TIER`.
+- `askQuestionStream` now sends `speed` and the controls above. It sent only the question, birth details and language before.
+  ```typescript
+  const answer = await client.askQuestion({
+    question: 'What are my career prospects this year?',
+    birthDetails,
+    speed: 'pro-ultra',
+    detail: 'brief',
+    maxTokens: 600,
+  });
+  ```
+- Vastu response types now follow the published OpenAPI: `VastuPlanGenerateData` types `floors[]` and `warnings[]`, `VastuPlanExportIfcData` types `storeyCount` and `storeys[]`, and each assessments-batch result's `response.data` declares `rulesVersion`. Types only; no request or behaviour change.
+- `ProUltraUnavailableError`, raised for HTTP 503 `PRO_ULTRA_UNAVAILABLE`: Pro Ultra cannot serve right now. The API refuses before billing, so nothing is charged and no other tier answers in its place. It extends `ServerError` and carries `retryAfter`.
+- `OutputBudgetExhaustedError`, raised for HTTP 400 `OUTPUT_BUDGET_EXHAUSTED`: a Pro Ultra question used its whole output budget before any text was written and had no birth chart to answer from. Not charged. It extends `VedikaAPIError`. The SDK does not raise `maxTokens` for you; do it yourself, or set `detail: 'brief'`.
+- `QuestionErrorCode` holds the `code` strings of the answer controls and tiers (`CONTROL_UNSUPPORTED_FOR_TIER`, `INVALID_DETAIL`, `INVALID_STOP`, `DETAIL_BUDGET_CONFLICT`, `OUTPUT_BUDGET_EXHAUSTED`, `PRO_ULTRA_UNAVAILABLE`, `ECO_UNAVAILABLE`, `VERSION_UNAVAILABLE`), so `error.code` can be compared without retyping them.
+- `QuestionResponse.metadata` is typed as `QuestionResponseMetadata`, with `finishReason` (`QuestionFinishReason`), `truncated`, `degraded` and `degradedReason` (`QuestionDegradedReason`). An answer that reaches its output limit is a normal response with `finishReason: 'length'`, `truncated: true` and `degradedReason: 'budget_truncated'`; it is not charged, and the text may be cut off. The runtime already returned these fields; before, they were not in the types. The `completed` frame of a stream carries `finishReason` and `truncated`; a cut-off stream that had already delivered text can be billed, and it does not set the `degraded` fields on every route.
+  ```typescript
+  const answer = await client.askQuestion({ question, birthDetails, speed: 'pro-ultra', maxTokens: 300 });
+  if (answer.metadata?.truncated) {
+    // Not charged. Ask again with a higher maxTokens, or detail: 'brief'.
+  }
+  ```
+
+### Changed
+- Documentation: the README and the examples README now list `room-scan.js`.
+- Documentation: the type docs and README now state what the API does with each answer control. `maxTokens` runs from 1 to 4000 (1 to 8192 on `eco`), defaults to 2500 (2000 on `fast`, 8192 on `eco`) when neither `maxTokens` nor `detail` is set, and a whole number outside the range is clamped, not refused. `finishReason` is set on every cut-off answer, and otherwise only when the request used `detail`, `stop` or `seed`; a stop-sequence ending reads `'complete'`. `stop` and `seed` are taken by `fast`, `eco` and standard speed (with no `version` the request is served on version `'2'`) and refused with an explicit `version: '2.5'`; `pro-ultra` takes `stop` and refuses `seed`. `detail: 'detailed'` with a `maxTokens` below 384 is a 400 `DETAIL_BUDGET_CONFLICT`. A `version` sent with a speed other than standard is a 400 `VALIDATION_ERROR`, not `CONTROL_UNSUPPORTED_FOR_TIER`. The README no longer says fast mode is unavailable on streaming.
+
+## [3.1.4] - 2026-10-16
+
+### Changed
+- The client now sends the API key only as `Authorization: Bearer`. It no longer sends the legacy `X-API-Key` header alongside it. The API accepts both, so no change is needed on your side.
+
+## [3.1.3] - 2026-10-15
+
+### Changed
+- Code comments, type documentation and this changelog describe server behaviour without naming the technology behind it. No code or API change.
+
+## [3.1.2] - 2026-10-14
+
+3.1.1 was never published to npm; the last npm release is 3.1.0. This release also carries everything listed under 3.1.1 below.
+
+### Added
+- `uploadRoomCapture(client, capture, options)` and `mergeRoomCaptures(client, request, { idempotencyKey })`, exported from the package root. `uploadRoomCapture` sends a `vedika.roomCapture/1` capture to `POST /v2/astrology/vastu/ar/room-capture` and refuses, before anything is sent, a capture of another schema or with no tagged room. `mergeRoomCaptures` sends `ar/capture-merge`; the merge is billed, so it requires a caller-retained `idempotencyKey` and refuses a missing or malformed one. Both go through `vastuOperation`, so auth, retries and error mapping are unchanged.
+- Exported types for those helpers: `UploadRoomCaptureOptions`, `VastuRoomCaptureResult`, `VastuCaptureMergeResult`, `VastuRoomScanClient`, `VastuRoomCapture` and `VastuArCaptureMergeRequest`.
+- Response fields the API now returns on Vastu results: `auditStatus` (`accepted` or `provisional`, with `reasons`) on `ar/room-capture` and stored scans; `gradeStatus` and `gradeReasons` on `ar/scan-quality`, the detailed floor-plan audit and the plan audit; `directionalScoreStatus` and `directionalScoreMessage` on the plan audit; and `facing` on the plot of a DXF import plan.
+
+### Changed
+- Documentation: the installation and chart quick-start examples in the README are corrected, and the quick start prints fields the API returns.
+
 ## [3.1.1] - 2026-10-06
 
 ### Fixed
@@ -90,7 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-floor plan types (`floors[]`, shared `core`, `verticalChecks`) and
   bounded conversation continuation.
 - Complete typed contracts for every Vastu operation, validated against the
-  recorded Rust response fixtures.
+  recorded server response fixtures.
 
 ### Changed
 - Vastu provenance labels. These API responses changed on 2026-09-17:

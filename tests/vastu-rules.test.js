@@ -1,7 +1,7 @@
 const { VedikaClient } = require('../dist');
 test('comparison preserves two pins, exact input and retry identity', async () => {
   const client = new VedikaClient({ apiKey: 'vk_test' });
-  const body = { fromVersion: 'vastu-rules-2026-09-23', toVersion: 'vastu-rules-2026-10-04', input: { rooms: [{ name: 'bedroom', zone: 'SW' }] } };
+  const body = { fromVersion: 'vastu-rules-2026-10-04', toVersion: 'vastu-rules-2026-10-18', input: { rooms: [{ name: 'living', zone: 'CENTER' }] } };
   const post = jest.spyOn(client.client, 'post').mockResolvedValue({ data: { success: true, data: { changed: true, changes: [] }, billing: { charged: 0.01 } } });
   await client.vastuCompareVersions(body, { idempotencyKey: 'retained-comparison' });
   expect(post.mock.calls[0][0]).toContain('/plan/compare-versions');

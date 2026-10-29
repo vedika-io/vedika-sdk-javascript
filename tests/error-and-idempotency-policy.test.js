@@ -257,6 +257,22 @@ describe('429 is read from the body code, not the headers', () => {
     await expect(client.getPanchang()).rejects.toBeInstanceOf(sdk.RateLimitError);
     expect(seen).toHaveLength(1);
   });
+
+  test('MONTHLY_SPEND_LIMIT_REACHED is never retried and surfaces its code', async () => {
+    const { client, sleeps } = newClient({ maxRetries: 3 });
+    const seen = installAdapter(client, async () => ({
+      status: 429,
+      headers: { 'x-ratelimit-remaining': '57', 'retry-after': '1' },
+      data: { success: false, code: 'MONTHLY_SPEND_LIMIT_REACHED', message: 'Monthly spend limit reached', retryAfter: 1 },
+    }));
+    const error = await client.getPanchang({ date: '2026-10-06' }).catch((e) => e);
+    expect(error).toBeInstanceOf(sdk.RateLimitError);
+    expect(error).not.toBeInstanceOf(sdk.DailyLimitExceededError);
+    expect(error).toMatchObject({ statusCode: 429, code: 'MONTHLY_SPEND_LIMIT_REACHED', message: 'Monthly spend limit reached' });
+    expect(error.body).toMatchObject({ code: 'MONTHLY_SPEND_LIMIT_REACHED' });
+    expect(seen).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+  });
 });
 
 describe('422 IDEMPOTENCY_NOT_SUPPORTED', () => {

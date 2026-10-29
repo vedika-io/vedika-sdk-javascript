@@ -1,22 +1,22 @@
 # Vedika JavaScript/Node.js SDK
 
-Official JavaScript/Node.js SDK for the Vedika Astrology API - The **only B2B astrology API with AI-powered chatbot queries**.
+Official JavaScript/Node.js SDK for the Vedika Astrology API - structured calculations and conversational readings for application developers.
 
 [![npm version](https://badge.fury.io/js/@vedika-io/sdk.svg)](https://badge.fury.io/js/@vedika-io/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node Version](https://img.shields.io/node/v/@vedika-io/sdk.svg)](https://www.npmjs.com/package/@vedika-io/sdk)
 
-## 🌟 What Makes Vedika Unique?
+## Capabilities
 
-Vedika is the **ONLY B2B astrology API** that offers:
+The SDK provides access to these Vedika capabilities:
 - ✅ **AI-Powered Chatbot Queries** (conversational astrology questions)
 - ✅ **Voice AI** (spoken answers in Indian languages and English; see `/api/v1/voice/pricing` for the current tiers and their languages)
-- ✅ **Fast, Standard & Eco Delivery Tiers** (1.5-3s fast vs 12-18s comprehensive; eco is the lower-cost engine)
+- ✅ **Fast, Standard, Eco & Pro Ultra Delivery Tiers** (availability varies by route and plan; response time depends on the request and selected tier)
 - ✅ **Multi-Turn Conversations** (maintain context via conversationId)
 - ✅ **Traditional Vedic Coverage** (birth charts, dashas, yogas, doshas, compatibility)
-- ✅ **Multi-Language Answers** (14 Indian languages plus English, and major world languages)
+- ✅ **Multi-Language Answers** (availability varies by operation and plan; see the current API reference)
 
-**In summary:** All the features of traditional astrology APIs, **PLUS** conversational AI capabilities no other provider has.
+Use structured calculations and conversational readings through the same authenticated API.
 
 ## 🚀 Quick Start
 
@@ -35,31 +35,35 @@ const { VedikaClient } = require('@vedika-io/sdk');
 
 // Initialize client
 const client = new VedikaClient({
-  apiKey: 'vk_live_...'
+  apiKey: process.env.VEDIKA_API_KEY
 });
 
-// Ask a conversational astrology question (UNIQUE to Vedika!)
+const birthDetails = {
+  datetime: '1990-06-15T14:30:00+05:30',
+  latitude: 28.6139,
+  longitude: 77.2090,
+  timezone: '+05:30'
+};
+
+// Ask a conversational astrology question
 const response = await client.askQuestion({
   question: 'What are my career prospects for this year?',
-  birthDetails: {
-    datetime: '1990-06-15T14:30:00+05:30',
-    latitude: 28.6139,
-    longitude: 77.2090,
-    timezone: '+05:30'
-  },
-  language: 'en',  // 29 languages; see the language list below
-  speed: 'standard'  // 'fast' (1.5-3s), 'standard' (12-18s, default), or 'eco' (lower cost)
+  birthDetails,
+  language: 'en',  // See the language codes and route-specific coverage below
+  speed: 'standard'  // 'fast', 'standard' (default), 'eco' or 'pro-ultra'; availability varies by route and plan
 });
 
 console.log(response.answer);
-console.log(`Confidence: ${response.confidence}`);
-console.log(`Credits used: ${response.creditsUsed}`);
 console.log(`Conversation ID: ${response.conversationId}`);  // Use for multi-turn
+console.log(response.followUpSuggestions);  // Suggested next questions
+// Cost and wallet balance for this call are in the response metadata.
+console.log(response.metadata?.cost, response.metadata?.wallet);
 
-// Continue conversation
+// Continue conversation. Send the same birthDetails again; the response does
+// not echo them back.
 const followUp = await client.askQuestion({
   question: 'Tell me about my marriage prospects',
-  birthDetails: response.birthDetails,
+  birthDetails,
   conversationId: response.conversationId  // Maintains context
 });
 ```
@@ -128,10 +132,10 @@ function AstrologyChat() {
 
 ## 📚 Features
 
-### 🤖 AI Chatbot Queries (Unique Feature!)
+### 🤖 AI Chatbot Queries
 
 ```javascript
-// Conversational astrology - No other API has this!
+// Conversational astrology with documented request fields
 const response = await client.askQuestion({
   question: 'When should I start my new business?',
   birthDetails: birthInfo,
@@ -150,9 +154,11 @@ const chart = await client.getBirthChart({
   ayanamsa: 'lahiri'  // 8 ayanamsa systems supported
 });
 
-console.log(chart.planets);
-console.log(chart.houses);
-console.log(chart.ascendant);
+// V1 returns the complete wire envelope, including metadata.
+console.log(chart.chartData.data.planets);
+console.log(chart.chartData.data.houses);
+console.log(chart.chartData.data.ascendant);
+console.log(chart.metadata);
 ```
 
 ### 🔮 Dasha Periods
@@ -442,7 +448,7 @@ Each batch item uses the existing assessment price; there is no batch fee. Inspe
 
 ## 🌍 Multi-Language Support
 
-Vedika answers in 29 languages:
+Set the response language using the codes below. Availability varies by operation, delivery tier and plan; confirm your route in the [API reference](https://vedika.io/api-reference).
 
 ```javascript
 // Ask in Hindi
@@ -460,7 +466,7 @@ const response = await client.askQuestion({
 });
 ```
 
-**Supported languages:**
+**Language codes:**
 - 🇮🇳 South Asian: Hindi (`hi`), Bengali (`bn`), Tamil (`ta`), Telugu (`te`), Marathi (`mr`),
   Gujarati (`gu`), Kannada (`kn`), Malayalam (`ml`), Punjabi (`pa`), Odia (`od`), Assamese (`as`),
   Urdu (`ur`), Nepali (`ne`), Sinhala (`si`)
@@ -498,21 +504,131 @@ if (voice.isAudio) {
 
 ### Speed Modes
 
+Choose a supported tier for your operation and plan. Response time depends on the route, request complexity, answer length and selected tier; tier names do not guarantee a fixed duration.
+
 ```javascript
-// Fast mode: 1.5-3 seconds, English only, ~700 word cap
+// Select the fast tier when supported by your route and plan
 const fastResp = await client.askQuestion({
   question: 'Quick career check?',
   birthDetails: birthInfo,
   speed: 'fast'  // Optimized for latency
 });
 
-// Standard mode: 12-18 seconds, all languages, full depth (default)
+// Standard is the default tier; language and answer controls depend on the route
 const fullResp = await client.askQuestion({
   question: 'Full career analysis?',
   birthDetails: birthInfo,
   speed: 'standard'  // Comprehensive response
 });
 ```
+
+### Pro Ultra and answer-length controls
+
+`speed` also accepts `'pro-ultra'`. Beside it, `askQuestion`, `askVastuReport`
+and `askQuestionStream` take these optional fields, each sent only when you set it:
+
+| Field | Value |
+| --- | --- |
+| `speed` | `'standard'` (default), `'fast'`, `'eco'` or `'pro-ultra'` |
+| `version` | `'2.5'` (default) or `'2'` (retiring). Standard speed only: with any other speed it is a 400 `VALIDATION_ERROR`. |
+| `detail` | `'brief'`, `'standard'` or `'detailed'`. `'standard'` is the same as leaving it out. On Pro Ultra it also sets how much reasoning the model applies before it writes: `'brief'` the least, `'standard'` or omitted a balanced amount, `'detailed'` the most. |
+| `maxTokens` | Integer output-token limit, 1 to 4000 (1 to 8192 on `eco`). Default 2500 (2000 on `fast`, 8192 on `eco`) when you set neither `maxTokens` nor `detail`. A whole number outside the range is clamped to it. |
+| `stop` | One string, or 1 to 4 strings of 1 to 64 characters. Refused with an explicit `version: '2.5'`. |
+| `seed` | Integer sampling hint. Best effort; not a guarantee of identical output. Refused on `pro-ultra` and with an explicit `version: '2.5'`. |
+
+```javascript
+const brief = await client.askQuestion({
+  question: 'What are my career prospects this year?',
+  birthDetails,
+  speed: 'pro-ultra',
+  detail: 'brief',    // a complete, shorter answer
+  maxTokens: 600,     // output-token limit for this answer
+  stop: ['END']       // one string, or up to 4
+});
+
+// Standard speed pinned to the retiring engine version
+const legacy = await client.askQuestion({
+  question: 'Full career analysis?',
+  birthDetails,
+  speed: 'standard',
+  version: '2',
+  seed: 42
+});
+```
+
+The API checks each control against the tier before anything is billed. A
+control the tier does not support (for example `seed` on Pro Ultra) is refused
+with a 400 and the code `CONTROL_UNSUPPORTED_FOR_TIER`, so you are never charged
+for it. On standard speed with no `version`, a request that carries `stop` or
+`seed` is served on version `'2'` instead of being refused. The SDK passes your
+values through and leaves those rules to the API.
+
+| Refusal | Code | Charged |
+| --- | --- | --- |
+| A control the tier does not support (`seed` on Pro Ultra, `stop` or `seed` with an explicit `version: '2.5'`) | 400 `CONTROL_UNSUPPORTED_FOR_TIER` | No |
+| `detail` is not `brief`, `standard` or `detailed` | 400 `INVALID_DETAIL` | No |
+| `stop` is not 1 to 4 strings of 1 to 64 characters | 400 `INVALID_STOP` | No |
+| A `stop` sequence matched before any answer text was written | 400 `STOP_MATCHED_BEFORE_ANSWER` (on a stream, an `error` event). Change or remove `stop`. | No |
+| `detail: 'detailed'` with a `maxTokens` below 384 (not on `eco`) | 400 `DETAIL_BUDGET_CONFLICT` | No |
+| `version` with a speed other than standard, or a value other than `'2'` or `'2.5'` | 400 `VALIDATION_ERROR` | No |
+| Pro Ultra cannot serve right now | 503 `PRO_ULTRA_UNAVAILABLE`, raised as `ProUltraUnavailableError` | No |
+| Pro Ultra used its whole output budget before writing any text, and the request had no birth chart | 400 `OUTPUT_BUDGET_EXHAUSTED`, raised as `OutputBudgetExhaustedError` | No |
+
+`QuestionErrorCode` holds the control and tier code strings above (and
+`ECO_UNAVAILABLE` and `VERSION_UNAVAILABLE`), so you can compare `error.code`
+without typing them out. `VALIDATION_ERROR` is a general code and is not in it.
+
+```javascript
+const { ProUltraUnavailableError, OutputBudgetExhaustedError, QuestionErrorCode, VedikaAPIError } = require('@vedika-io/sdk');
+
+try {
+  const answer = await client.askQuestion({ question, birthDetails, speed: 'pro-ultra', maxTokens: 600 });
+  console.log(answer.answer);
+} catch (error) {
+  if (error instanceof ProUltraUnavailableError) {
+    // 503, not charged, and no other tier answered in its place.
+    console.error(`Pro Ultra is unavailable; try again in ${error.retryAfter ?? 5}s`);
+  } else if (error instanceof OutputBudgetExhaustedError) {
+    // 400, not charged. Retry with a higher maxTokens, or detail: 'brief'.
+    console.error(error.message);
+  } else if (error instanceof VedikaAPIError && error.code === QuestionErrorCode.CONTROL_UNSUPPORTED_FOR_TIER) {
+    console.error('Drop the control the tier does not support:', error.message);
+  } else {
+    throw error;
+  }
+}
+```
+
+**A cut-off answer is a normal response.** When an answer reaches its output
+limit, the response comes back with `metadata.finishReason` set to `'length'`
+(or `'budgetExceeded'` when it was found to end mid-sentence),
+`metadata.truncated: true`, `metadata.degraded: true` and
+`metadata.degradedReason: 'budget_truncated'`. It is not charged. The text may
+stop mid-sentence, so check `truncated` before showing it as final, then ask
+again with a higher `maxTokens` or `detail: 'brief'`. Every answer, cut off
+or not, carries `finishReason` and `truncated`, whatever you sent: a finished
+answer reads `'complete'` and `truncated: false`. On Vedika Pro Ultra a `stop`
+match reads `'stopSequence'`; on the other speeds it reads `'complete'`.
+
+A stream reports a cut-off the same way, on the `metadata` of its `completed`
+frame: `finishReason`, `truncated`, `degraded: true` and
+`degradedReason: 'budget_truncated'`. A cut-off stream is not charged either; the
+text it already delivered stays with you.
+
+```javascript
+const answer = await client.askQuestion({ question, birthDetails, speed: 'pro-ultra', maxTokens: 300 });
+if (answer.metadata?.truncated) {
+  console.warn(`Cut off (${answer.metadata.finishReason}); not charged. Retry with a higher maxTokens.`);
+}
+```
+
+On Pro Ultra, `maxTokens` is the answer budget and the service adds room for
+reasoning on top of it. Reasoning is billed as output only when it is used, so
+one request can bill up to `maxTokens` plus 8,192 output tokens;
+`metadata.usage` and `metadata.cost` report what was actually used. A question
+that uses even that room before any text is written is never charged: with a
+birth chart you get the response above (`budget_truncated`, with a chart-only
+answer), without one the 400 `OUTPUT_BUDGET_EXHAUSTED`.
 
 ### Streaming Responses (Real-Time)
 
@@ -521,7 +637,7 @@ const fullResp = await client.askQuestion({
 for await (const chunk of client.askQuestionStream({
   question: 'What are my career prospects?',
   birthDetails: birthInfo,
-  speed: 'standard'  // Fast mode not available on streaming
+  speed: 'standard'  // 'fast', 'eco' and 'pro-ultra' work on streaming too
 })) {
   process.stdout.write(chunk);
 }
@@ -579,7 +695,10 @@ The client retries only when a repeat cannot charge you twice, and it reads the 
 | 401 | Never retried. `AuthenticationError`. |
 | 429 `RATE_LIMIT_EXCEEDED` | Waits the body `retryAfter` (up to 30 s), then retries. A longer wait is raised as `RateLimitError` with `retryAfter`. |
 | 429 `DAILY_LIMIT_EXCEEDED` | Never retried. `DailyLimitExceededError`: the allowance is gone until tomorrow. |
+| 429 `MONTHLY_SPEND_LIMIT_REACHED` | Never retried. `RateLimitError` with `code` `MONTHLY_SPEND_LIMIT_REACHED`: the account's monthly spend limit is reached and clears only in the new month, or when the owner raises or removes it under Billing. |
+| 400 (any code, including `CONTROL_UNSUPPORTED_FOR_TIER`, `DETAIL_BUDGET_CONFLICT`, `STOP_MATCHED_BEFORE_ANSWER` and `OUTPUT_BUDGET_EXHAUSTED`) | Never retried, and the SDK never changes your settings to make a retry fit. The request was refused before billing; change it and send it again. |
 | 502 / 503 / 504 or a dropped connection | Retried for GETs and for requests that carry an idempotency key. A billed POST without a key is not retried. |
+| 503 `PRO_ULTRA_UNAVAILABLE` | Retried like any 503: `askQuestion` and `askVastuReport` carry a key, so they are sent again, always on Pro Ultra. After the last retry it is raised as `ProUltraUnavailableError` with `retryAfter`. `askQuestionStream` is never retried. |
 | 422 `IDEMPOTENCY_NOT_SUPPORTED` | The endpoint takes no key. The request is resent once without it (no charge was attempted) and that route is not keyed again. |
 
 The API accepts an idempotency key only on certified operations (their OpenAPI entry lists `Idempotency-Key` or `X-Idempotency-Key`) and on the Vastu family. The client attaches a key by itself only there. Elsewhere it sends none: a key, or a custom `X-Request-Id`, on a calculator route is answered 422. To protect a call you retry yourself, pass your own key to a certified operation: `client.post('/v2/reports/prebuilt/generate', body, { idempotencyKey: 'order-123' })`.
@@ -697,6 +816,7 @@ https://github.com/vedika-io/vedika-sdk-javascript/tree/main/examples
 - `birth-chart.js` - Complete birth chart generation
 - `streaming.js` - Real-time streaming responses
 - `vastu.js` - Vastu mandala projection, room placement, and scoring
+- `room-scan.js` - Upload a finished room scan and show the floor merge rule (a dry run unless you pass `--live`)
 
 ## 🐛 Troubleshooting
 
@@ -732,9 +852,8 @@ const client = new VedikaClient({
 
 ## 📊 Performance
 
-- **Average response time:** 2.14 seconds (simple queries)
-- **Complex queries:** 28-36 seconds (deep analysis path)
-- **Availability:** single region (AWS `ap-south-1`, Mumbai) with multi-AZ redundancy. There is no cross-region failover; availability commitments are set per contract.
+Response time depends on the operation, request complexity, answer length and selected tier. Measure representative requests for your application and configure an appropriate timeout.
+Availability commitments follow your [published plan and signed agreement](https://vedika.io/sla).
 
 ## 🔒 Security
 
@@ -764,29 +883,18 @@ If you find this SDK helpful, please:
 
 ---
 
-## 🎯 Why Choose Vedika?
+## Choosing an integration
 
-### Vedika vs Traditional Astrology APIs
+Use the SDK when your application needs structured chart data, conversational readings, or both. Available operations, response languages and usage limits depend on your plan and the selected route.
 
-| Feature | Vedika | Others |
-|---------|--------|--------|
-| **AI Chatbot Queries** | ✅ YES (UNIQUE!) | ❌ No |
-| Birth Charts | ✅ Yes | ✅ Yes |
-| Dashas | ✅ Yes | ✅ Yes |
-| Compatibility | ✅ Yes | ✅ Yes |
-| 300+ Yogas | ✅ Yes | ⚠️ Limited |
-| Dosha Analysis | ✅ Complete | ⚠️ Basic |
-| Conversational AI | ✅ Yes | ❌ No |
-| 30 Languages | ✅ Yes | ❌ English only |
-| Streaming | ✅ Yes | ❌ No |
-| **Unique Value** | **Traditional + AI** | Traditional only |
-
-**Bottom line:** Vedika provides everything other astrology APIs offer, **PLUS** the only conversational AI chatbot capability in the market.
+- Start with the [API reference](https://vedika.io/api-reference) for request and response contracts.
+- Use the [keyless sandbox](https://vedika.io/sandbox) for fixed mock examples.
+- Review [pricing](https://vedika.io/pricing) before sending authenticated production requests.
 
 ---
 
 **Built with ❤️ by Vedika Intelligence**
 
-**The only B2B astrology API with AI-powered chatbot queries.**
+**Astrology APIs with structured calculations and conversational readings.**
 
 Get started: https://vedika.io

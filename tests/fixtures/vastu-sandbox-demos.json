@@ -1,7 +1,7 @@
 {
   "_meta": {
     "schemaVersion": 2,
-    "source": "frozen local Rust vedika-v2 sandbox_router handlers",
+    "source": "Fixed sandbox response fixtures for integration tests",
     "generatedBy": "scripts/catalog/harvest-vastu-sandbox-demos.mjs",
     "endpointCount": 101,
     "demoCount": 101,
