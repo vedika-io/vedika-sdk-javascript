@@ -16,5 +16,5 @@ test('compatibility sends both records and renders recorded recommendation witho
 test('documented matching response displays returned score, verdict and escaped recommendation', () => {
   const result = fixture('spec-match.json'); result.data.recommendation = '<script>bad()</script>';
   const html = matchView(result); assert.match(html, /28 \/ 36/); assert.match(html, /Good/);
-  assert.doesNotMatch(html, /<script>/); assert.match(html, /&lt;script&gt;/);
+  assert.ok(!html.includes('<script>')); assert.match(html, /&lt;script&gt;/);
 });
