@@ -132,7 +132,7 @@ test('retains V1 response bodies and the stream response type', async () => {
   const base = await serve((req, res) => {
     if (req.url.endsWith('/stream')) {
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
-      res.end('data: first\ndata: second\n');
+      res.end('data: first\n\ndata: second\n\n');
     } else json(res, body);
   });
   const instance = client(base);

@@ -442,6 +442,8 @@ const answer = await client.askVastuReport({
 });
 ```
 
+`vastuJobResultItems` follows `nextCursor` even when a page has no results. If the server returns a cursor already seen during that iteration (including a cycle such as `a → b → a`), it throws `ValidationError` before requesting that cursor again. Results already yielded remain available to the caller.
+
 The named helpers (`vastuListingAssessment`, `vastuScore`, `vastuAudit`, `vastuRoom`, `vastuPlacement` and the rest) take `{ idempotencyKey }` as their last argument. Pass a key you saved when a retry may come from a new call.
 
 Each batch item uses the existing assessment price; there is no batch fee. Inspect every item status even when the batch succeeds. Scores are versioned conventions. Compare the same scoring version and equivalent room coverage. Detailed audits report missing input and do not certify physical survey completeness.
@@ -631,6 +633,11 @@ birth chart you get the response above (`budget_truncated`, with a chart-only
 answer), without one the 400 `OUTPUT_BUDGET_EXHAUSTED`.
 
 ### Streaming Responses (Real-Time)
+
+The iterator yields one string per complete Server-Sent Event (`data` payload),
+not per network chunk. Multiline data is joined with newlines; an unfinished
+event at connection end is discarded. Closing the iterator releases the
+response. A stream is never automatically retried.
 
 ```javascript
 // Stream responses for better UX

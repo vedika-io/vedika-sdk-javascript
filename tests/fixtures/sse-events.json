@@ -1,0 +1,201 @@
+[
+  {
+    "name": "JSON events",
+    "wire": "event: token\ndata: {\"text\":\"hello\"}\n\nevent: completed\ndata: {\"metadata\":{\"truncated\":false}}\n\n",
+    "expected": [
+      "{\"text\":\"hello\"}",
+      "{\"metadata\":{\"truncated\":false}}"
+    ]
+  },
+  {
+    "name": "optional space",
+    "wire": "data:hello\n\n",
+    "expected": [
+      "hello"
+    ]
+  },
+  {
+    "name": "multiline data",
+    "wire": "data: hello\ndata:world\ndata:\n\n",
+    "expected": [
+      "hello\nworld\n"
+    ]
+  },
+  {
+    "name": "empty data",
+    "wire": "data:\n\ndata\n\n",
+    "expected": [
+      "",
+      ""
+    ]
+  },
+  {
+    "name": "CRLF",
+    "wire": "data: first\r\n\r\ndata: second\r\n\r\n",
+    "expected": [
+      "first",
+      "second"
+    ]
+  },
+  {
+    "name": "CR only",
+    "wire": "data: first\r\rdata: second\r\r",
+    "expected": [
+      "first",
+      "second"
+    ]
+  },
+  {
+    "name": "mixed line endings",
+    "wire": "data: first\rdata: second\n\r\n",
+    "expected": [
+      "first\nsecond"
+    ]
+  },
+  {
+    "name": "comments and unknown fields",
+    "wire": ": heartbeat\nevent: token\nid: 7\nretry: 3000\nunknown: ignore\nData: ignore\ndata: kept\n\n",
+    "expected": [
+      "kept"
+    ]
+  },
+  {
+    "name": "ignored event",
+    "wire": "event: ping\n\n\n: heartbeat\n\n",
+    "expected": []
+  },
+  {
+    "name": "leading BOM",
+    "wire": "﻿data: नमस्ते తెలుగు 🌙\n\n",
+    "expected": [
+      "नमस्ते తెలుగు 🌙"
+    ]
+  },
+  {
+    "name": "embedded BOM and unicode separators",
+    "wire": "data: a﻿bc d e\n\n",
+    "expected": [
+      "a﻿bc d e"
+    ]
+  },
+  {
+    "name": "strip one space only",
+    "wire": "data:  leading: value\n\n",
+    "expected": [
+      " leading: value"
+    ]
+  },
+  {
+    "name": "incomplete line",
+    "wire": "data: partial",
+    "expected": []
+  },
+  {
+    "name": "incomplete event",
+    "wire": "data: partial\n",
+    "expected": []
+  },
+  {
+    "name": "complete then incomplete",
+    "wire": "data: complete\n\ndata: partial\n",
+    "expected": [
+      "complete"
+    ]
+  },
+  {
+    "name": "empty stream",
+    "wire": "",
+    "expected": []
+  },
+  {
+    "name": "Hinglish texting",
+    "wire": "data: btaiye nhi kya kru\n\n",
+    "expected": [
+      "btaiye nhi kya kru"
+    ]
+  },
+  {
+    "name": "Devanagari",
+    "wire": "data: नमस्ते\n\n",
+    "expected": [
+      "नमस्ते"
+    ]
+  },
+  {
+    "name": "Bengali",
+    "wire": "data: নমস্কার\n\n",
+    "expected": [
+      "নমস্কার"
+    ]
+  },
+  {
+    "name": "Gujarati",
+    "wire": "data: નમસ્તે\n\n",
+    "expected": [
+      "નમસ્તે"
+    ]
+  },
+  {
+    "name": "Gurmukhi",
+    "wire": "data: ਸਤ ਸ੍ਰੀ ਅਕਾਲ\n\n",
+    "expected": [
+      "ਸਤ ਸ੍ਰੀ ਅਕਾਲ"
+    ]
+  },
+  {
+    "name": "Odia",
+    "wire": "data: ନମସ୍କାର\n\n",
+    "expected": [
+      "ନମସ୍କାର"
+    ]
+  },
+  {
+    "name": "Tamil",
+    "wire": "data: வணக்கம்\n\n",
+    "expected": [
+      "வணக்கம்"
+    ]
+  },
+  {
+    "name": "Telugu",
+    "wire": "data: నమస్కారం\n\n",
+    "expected": [
+      "నమస్కారం"
+    ]
+  },
+  {
+    "name": "Kannada",
+    "wire": "data: ನಮಸ್ಕಾರ\n\n",
+    "expected": [
+      "ನಮಸ್ಕಾರ"
+    ]
+  },
+  {
+    "name": "Malayalam",
+    "wire": "data: നമസ്കാരം\n\n",
+    "expected": [
+      "നമസ്കാരം"
+    ]
+  },
+  {
+    "name": "Arabic Indic",
+    "wire": "data: سلام\n\n",
+    "expected": [
+      "سلام"
+    ]
+  },
+  {
+    "name": "Ol Chiki",
+    "wire": "data: ᱡᱚᱦᱟᱨ\n\n",
+    "expected": [
+      "ᱡᱚᱦᱟᱨ"
+    ]
+  },
+  {
+    "name": "Meitei Mayek",
+    "wire": "data: ꯈꯨꯔꯨꯝꯖꯔꯤ\n\n",
+    "expected": [
+      "ꯈꯨꯔꯨꯝꯖꯔꯤ"
+    ]
+  }
+]

@@ -99,6 +99,7 @@ import {
   QuestionErrorCode,
 } from './exceptions';
 import { certifiedIdempotencyHeaders } from './idempotency-policy';
+import { sseData } from './sse';
 import type { VoiceQuery, VoiceResult, VoiceMetaHeader, VoiceResponse } from './types';
 // Value import (runtime helper) — transition-tolerant western normalizer (3.0.6).
 import { normalizeWesternRelationship, VASTU_OPERATIONS } from './types';
@@ -959,7 +960,8 @@ export class VedikaClient {
    * Stream conversational astrology question response in real-time
    *
    * @param query - Question query parameters
-   * @returns Async generator yielding response chunks
+   * @returns Async generator yielding complete SSE event data strings. Multiline
+   * data is joined with newlines; incomplete events at EOF are discarded.
    *
    * @example
    * ```typescript
@@ -985,16 +987,7 @@ export class VedikaClient {
       }
     );
 
-    const stream = response.data;
-
-    for await (const chunk of stream) {
-      const lines = chunk.toString().split('\n');
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          yield line.substring(6);
-        }
-      }
-    }
+    yield* sseData(response.data);
   }
 
   /**
@@ -1734,15 +1727,20 @@ export class VedikaClient {
     return (response.data?.__envelope ?? response.data) as VastuJobsIdResultsResponse;
   }
 
-  /** Every finished item of a job, following `nextCursor` until it is null. */
+  /**
+   * Every finished item of a job, following `nextCursor` until it is null.
+   * @throws {ValidationError} If the server reuses a cursor, including in a longer cycle.
+   */
   async *vastuJobResultItems(jobId: string): AsyncGenerator<VastuJobResultItem> {
     let cursor: string | undefined;
+    const seenCursors = new Set<string>();
     for (;;) {
       const page: VastuJobsIdResultsResponse = await this.vastuJobResults(jobId, cursor === undefined ? undefined : { cursor });
       for (const item of page.data.results) yield item;
       const next = page.data.nextCursor;
       if (!next) return;
-      if (next === cursor) throw new ValidationError('The server returned the same results cursor twice');
+      if (seenCursors.has(next)) throw new ValidationError('The server returned the same results cursor twice');
+      seenCursors.add(next);
       cursor = next;
     }
   }
