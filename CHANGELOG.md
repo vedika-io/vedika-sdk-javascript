@@ -5,6 +5,12 @@ All notable changes to the Vedika JavaScript SDK will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `vastuJobResultItems` rejects repeated pagination cursors with `ValidationError` before a duplicate request; empty pages with new cursors continue normally.
+- Streamed answers now yield complete SSE event data across arbitrary network chunks. Preserve UTF-8 text, handle LF/CRLF/CR, optional spaces, multiline and empty data, and discard incomplete events at EOF. Streaming requests remain non-retrying.
+
 ## [3.2.2] - 2026-10-29
 
 ### Changed
