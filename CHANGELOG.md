@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Breaking: the minimum supported Node.js version is now 20 (`engines.node` is `>=20`). Node 14, 16 and 18 are end of life and no longer supported.
+- Compiled output now targets ES2022.
+- CI runs the build, lint and tests on Node 20, 22 and 24.
+
 ### Fixed
 - `vastuJobResultItems` rejects repeated pagination cursors with `ValidationError` before a duplicate request; empty pages with new cursors continue normally.
 - Streamed answers now yield complete SSE event data across arbitrary network chunks. Preserve UTF-8 text, handle LF/CRLF/CR, optional spaces, multiline and empty data, and discard incomplete events at EOF. Streaming requests remain non-retrying.

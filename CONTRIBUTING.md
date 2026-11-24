@@ -52,7 +52,7 @@ We actively welcome your pull requests:
 
 ### Prerequisites
 
-- Node.js 14.0.0 or higher
+- Node.js 20 or higher
 - npm or yarn
 - TypeScript
 
